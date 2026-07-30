@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sprpcf"
+version = "0.1.0"
+description = "ML-driven inverse design and edge denoising for PCF-SPR sensors"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,9 @@
+study: std1
+wavelength_expression: lambda
+loss_expression: loss
+sweep:
+  d_over_lambda: [0.35, 0.45, 0.55, 0.65]
+  pitch_um: [1.4, 1.8, 2.2]
+  metal_thickness_nm: [35, 45, 55]
+  analyte_ri: [1.33, 1.35, 1.37, 1.39]
+  channel_radius_um: [0.45, 0.60, 0.75]
