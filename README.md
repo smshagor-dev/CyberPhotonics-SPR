@@ -1,14 +1,14 @@
 # CyberPhotonics-SPR
 
-Research framework for photonic crystal fiber surface plasmon resonance (PCF-SPR) simulation, conditioned ML inverse design, active learning, edge spectral inference, scientific validation, COMSOL closed-loop verification, and calibrated multi-objective design.
+A publication-oriented cyber-physical photonics research framework for **PCF-SPR simulation, physics-informed inverse design, active learning, calibrated multi-objective optimization, COMSOL closed-loop verification, and real-time edge sensing**.
 
-The framework has three linked pipelines:
+The repository is organized around three linked pipelines:
 
-- **A — Physics/data:** COMSOL sweeps through `mph`, spectral metric extraction, explicit unit validation, synthetic fixed-geometry RI sweeps when COMSOL is unavailable, and closed-loop dataset augmentation from accepted physics runs.
-- **B — ML inverse design:** PyTorch forward surrogate conditioned on sensor geometry **and analyte RI**, a tandem inverse generator with fabrication penalties, bounded ONNX output, optional forward ensembles, conformal uncertainty, OOD detection, and Pareto candidate selection.
-- **C — Edge inference:** 1D-CNN denoising and RI/resonance prediction with validated full-INT8 TFLite/LiteRT export and latency/accuracy reporting.
+- **A — Physics & data:** COMSOL sweeps through `mph`, explicit unit validation, fixed-geometry refractive-index sweeps, spectral metric extraction, synthetic software-validation data, and accepted-only closed-loop dataset augmentation.
+- **B — AI inverse design:** a conditioned PyTorch forward surrogate, tandem inverse generator, fabrication constraints, ONNX export, deep forward ensembles, conformal uncertainty, OOD detection, Pareto candidate selection, and physics re-verification.
+- **C — Edge & sensor runtime:** 1D-CNN denoising, RI/resonance inference, validated full-INT8 LiteRT deployment, wavelength/dark/reference calibration, JSONL or serial acquisition, spectral OOD, prediction intervals, and latency/memory benchmarking.
 
-Synthetic data is for pipeline validation only. Physical research conclusions should be based on verified COMSOL/experimental data.
+> **Evidence rule:** synthetic results validate software and methodology only. Physical performance claims require verified COMSOL and/or experimental sensor data. Runtime benchmarks for Raspberry Pi, Jetson, or other hardware must be measured on the actual device.
 
 ## Install
 
@@ -18,19 +18,27 @@ python -m venv .venv
 pip install -e ".[edge,onnx,xai,comsol,dev]"
 ```
 
-Python 3.10–3.13 is supported by the package metadata. COMSOL automation additionally requires a licensed COMSOL installation compatible with `mph`.
+For serial sensor acquisition:
+
+```powershell
+pip install -e ".[edge,hardware]"
+```
+
+Python 3.10–3.13 is supported. COMSOL automation additionally requires a licensed COMSOL installation compatible with `mph`.
 
 ## 1. Generate scientifically valid synthetic data
 
-Synthetic sensitivity is no longer estimated across unrelated random geometries. Each base geometry receives a fixed RI sweep, and sensitivity is calculated only inside that geometry group.
+Each base geometry receives a fixed RI sweep; sensitivity is never estimated across unrelated random geometries.
 
 ```powershell
-python scripts/generate_synthetic_dataset.py --samples 100 --out data/processed/synthetic.parquet
+python scripts/generate_synthetic_dataset.py `
+  --samples 100 `
+  --out data/processed/synthetic.parquet
 ```
 
-`--samples` means **base geometries**. The default five-point RI sweep produces 500 rows. A provenance sidecar is written beside every dataset with row/column metadata and a SHA-256 content hash.
+`--samples 100` means 100 base geometries. With the default five-point RI sweep this produces 500 rows. Dataset writes include provenance metadata and SHA-256 hashes.
 
-## 2. Train conditioned tandem inverse design
+## 2. Train the conditioned tandem inverse model
 
 ```powershell
 python -m sprpcf.ml.train_tandem `
@@ -41,7 +49,7 @@ python -m sprpcf.ml.train_tandem `
   --seed 7
 ```
 
-The forward surrogate uses:
+The forward surrogate input is:
 
 ```text
 pitch_um
@@ -51,20 +59,18 @@ channel_radius_um
 analyte_ri
 ```
 
-The inverse model receives target sensing metrics plus analyte RI and generates the four fabrication-design variables. Train/validation splitting is grouped by base geometry, so different RI points from one geometry cannot leak into both splits.
+The inverse generator receives target `[sensitivity, FOM, lambda_res]` plus analyte RI and returns the four fabrication variables. Train/validation splitting is grouped by base geometry to prevent RI-sweep leakage.
 
-The exported inverse ONNX interface uses physical units:
+The exported ONNX inverse interface uses physical units:
 
 ```text
 inputs:  target_metrics [sensitivity, FOM, lambda_res], analyte_ri
 output:  geometry [pitch_um, d_over_lambda, metal_thickness_nm, channel_radius_um]
 ```
 
-Output geometry is projected to the supported fabrication envelope.
-
 ## 3. Fabrication constraints
 
-The current supported envelope is:
+Current supported envelope:
 
 ```text
 0.20 <= d_over_lambda <= 0.90
@@ -74,7 +80,7 @@ The current supported envelope is:
 air-hole diameter < pitch
 ```
 
-These constraints are validated for COMSOL inputs, penalized during inverse training, and enforced on physical ONNX output.
+Constraints are validated at simulation boundaries, penalized during inverse training, and enforced on exported physical geometry. Validation reports retain raw pre-projection violations so projection cannot hide a weak inverse model.
 
 ## 4. Explainability
 
@@ -86,11 +92,11 @@ python -m sprpcf.ml.explainability `
   --heatmap outputs/feature_attribution.png
 ```
 
-Integrated Gradients and optional SHAP operate in the same standardized five-feature input space used to train the forward model. Analyte RI is included as a condition feature instead of being silently omitted.
+Integrated Gradients and optional SHAP operate in the same standardized five-feature space used by the trained forward surrogate, including analyte RI.
 
 ## 5. Active learning
 
-Candidate files must contain:
+Candidate tables contain:
 
 ```text
 sensitivity_nm_per_riu
@@ -99,7 +105,7 @@ lambda_res_nm
 analyte_ri
 ```
 
-Select uncertain candidates with trained MC dropout:
+Select uncertain candidates:
 
 ```powershell
 python -m sprpcf.ml.active_learning `
@@ -109,7 +115,7 @@ python -m sprpcf.ml.active_learning `
   --out outputs/uncertain_candidates.csv
 ```
 
-To close the loop and run **only the selected generated geometries** in COMSOL:
+Run only selected generated geometries in COMSOL:
 
 ```powershell
 python -m sprpcf.ml.active_learning `
@@ -131,9 +137,9 @@ python -m sprpcf.simulation.comsol_sweep `
   --out data/raw/comsol_sweep.parquet
 ```
 
-Sensitivity is calculated only for rows sharing identical geometry while analyte RI changes. Duplicate RI values inside one fixed-geometry sweep are rejected rather than producing invalid gradients.
+Sensitivity is calculated only within identical geometry groups while analyte RI varies. Duplicate RI values in a fixed-geometry sweep are rejected.
 
-The YAML file includes an explicit unit contract:
+Unit contract example:
 
 ```yaml
 wavelength_scale_to_nm: 1.0
@@ -141,7 +147,7 @@ loss_scale_to_db_per_cm: 1.0
 expected_wavelength_nm: [400.0, 1000.0]
 ```
 
-If COMSOL returns wavelength in meters, set `wavelength_scale_to_nm: 1.0e9`. Implausible wavelength ranges fail fast instead of silently contaminating research results.
+If COMSOL returns wavelength in meters, use `wavelength_scale_to_nm: 1.0e9`. Implausible wavelength ranges fail fast.
 
 ## 7. Train and validate edge models
 
@@ -164,19 +170,9 @@ models/edge_denoiser_quantized.tflite
 models/edge_ri_predictor_quantized.tflite
 ```
 
-When `--quantize` is enabled, the framework evaluates the actual INT8 models and reports denoising PSNR/SSIM, RI and resonance MAE/R², float-vs-INT8 error deltas, P50/P95 latency, and model sizes.
+Full-INT8 evaluation reports denoising PSNR/SSIM, RI and resonance MAE/R², float-vs-INT8 deltas, latency, and artifact sizes. The runtime uses LiteRT rather than deprecated `tf.lite.Interpreter`.
 
-Standalone full-INT8 export requires calibration data and will fail if it is omitted:
-
-```powershell
-python -m sprpcf.edge.export_tflite `
-  --model models/edge_denoiser.keras `
-  --out models/edge_denoiser_quantized.tflite `
-  --quantization int8 `
-  --calibration-data data/processed/synthetic.parquet
-```
-
-## 8. Replay a simulated sensor stream
+## 8. Replay the stored-spectrum stream
 
 ```powershell
 python -m sprpcf.edge.realtime_feed `
@@ -185,7 +181,7 @@ python -m sprpcf.edge.realtime_feed `
   --ri-model models/edge_ri_predictor.keras
 ```
 
-This command is explicitly a **stored-spectrum sensor replay**, not a hardware acquisition driver. Each noisy measured spectrum is normalized from its own observed statistics before inference.
+This is explicitly a **stored-spectrum replay**, not a hardware acquisition driver.
 
 Quantized benchmark:
 
@@ -198,8 +194,6 @@ python main.py simulate-stream `
 
 ## 9. Generate the scientific validation pack
 
-The research validation layer independently fits each fixed-geometry RI sweep, reports bootstrap confidence intervals, compares the neural forward surrogate with a leakage-resistant Ridge baseline, measures inverse target satisfaction, separates raw versus post-projection fabrication validity, and records MC-dropout uncertainty plus dataset/checkpoint SHA-256 provenance.
-
 ```powershell
 python scripts/run_validation_pack.py `
   --data data/processed/synthetic.parquet `
@@ -210,7 +204,7 @@ python scripts/run_validation_pack.py `
   --seed 7
 ```
 
-For the physics-loss ablation across deterministic seeds:
+Physics-loss ablation:
 
 ```powershell
 python scripts/run_ablation_study.py `
@@ -221,7 +215,7 @@ python scripts/run_ablation_study.py `
   --device cpu
 ```
 
-The validation pack exports CSV/JSON evidence, provenance, a Markdown report, and 300-dpi publication plots. See `docs/SCIENTIFIC_VALIDATION.md` for the full evidence protocol.
+The validation pack exports fitted fixed-geometry sensitivity/FOM, linearity, bootstrap intervals, Ridge-vs-neural baselines, inverse target satisfaction, raw/post-projection fabrication validity, uncertainty, provenance, CSV/JSON evidence, Markdown reporting, and 300-dpi plots. See `docs/SCIENTIFIC_VALIDATION.md`.
 
 ## 10. Run the physics-validated closed loop
 
@@ -237,11 +231,11 @@ python scripts/run_comsol_closed_loop.py `
   --retrain
 ```
 
-Each generated geometry is evaluated over an odd target-centered fixed-geometry RI sweep. Sensitivity/FOM/resonance/linearity gates decide whether physics rows are accepted into the augmented training dataset. The iteration manifest hashes the source dataset, checkpoint, COMSOL model/config, and generated artifacts.
+Each proposed geometry receives an odd, target-centered RI sweep. Independent sensitivity/FOM/resonance/linearity gates decide whether physics rows enter the augmented training dataset. Iteration manifests hash source data, model/config inputs, and outputs. See `docs/COMSOL_CLOSED_LOOP.md`.
 
 ## 11. Calibrated multi-objective AI design
 
-Upgrade an existing tandem checkpoint with independently initialized forward-surrogate ensemble members:
+Build a forward-surrogate ensemble:
 
 ```powershell
 python -m sprpcf.ml.ensemble `
@@ -253,7 +247,7 @@ python -m sprpcf.ml.ensemble `
   --device auto
 ```
 
-Generate a latent candidate pool for each target and rank it by separate sensitivity, FOM, resonance, manufacturability and OOD objectives:
+Generate and rank a latent candidate population:
 
 ```powershell
 python scripts/run_multiobjective_design.py `
@@ -265,7 +259,7 @@ python scripts/run_multiobjective_design.py `
   --confidence 0.95
 ```
 
-Or run the Pareto-selected designs directly through the Phase-2 physics loop:
+Or send Pareto-selected designs directly into the physics loop:
 
 ```powershell
 python scripts/run_advanced_closed_loop.py `
@@ -281,33 +275,84 @@ python scripts/run_advanced_closed_loop.py `
   --retrain
 ```
 
-The advanced selector combines held-out conformal residual calibration, optional deep-ensemble disagreement, Mahalanobis OOD scoring, raw-vs-projected fabrication distance, and Pareto non-dominated ranking. Its confidence score is a ranking aid—not a probability of physical success—and never bypasses COMSOL acceptance gates. See `docs/ADVANCED_AI_DESIGN.md`.
+The selector combines held-out conformal residual calibration, deep-ensemble disagreement, Mahalanobis OOD scoring, raw-vs-projected fabrication distance, separate target-error objectives, and Pareto non-dominated ranking. Confidence is a ranking aid, not a physical-success probability. See `docs/ADVANCED_AI_DESIGN.md`.
+
+## 12. Calibrated real-sensor runtime
+
+The hardware layer accepts a device-independent newline-delimited JSON protocol over file replay or serial transport. It supports raw pixel/intensity spectrometers as well as already-calibrated wavelength/loss frames.
+
+Create an edge calibration bundle from labeled held-out data:
+
+```powershell
+python scripts/calibrate_edge_runtime.py `
+  --data data/processed/experimental.parquet `
+  --denoiser models/edge_denoiser_quantized.tflite `
+  --predictor models/edge_ri_predictor_quantized.tflite `
+  --runtime litert `
+  --coverage 0.95 `
+  --ood-coverage 0.99 `
+  --out models/edge_calibration.json
+```
+
+Replay a captured sensor stream:
+
+```powershell
+python scripts/run_hardware_pipeline.py `
+  --source jsonl `
+  --input-jsonl data/raw/sensor_capture.jsonl `
+  --grid-data data/processed/training.parquet `
+  --denoiser models/edge_denoiser_quantized.tflite `
+  --predictor models/edge_ri_predictor_quantized.tflite `
+  --calibration models/edge_calibration.json `
+  --frames 100 `
+  --benchmark-iterations 500
+```
+
+Run a serial sensor:
+
+```powershell
+python scripts/run_hardware_pipeline.py `
+  --source serial `
+  --serial-port COM5 `
+  --baudrate 115200 `
+  --grid-data data/processed/training.parquet `
+  --denoiser models/edge_denoiser_quantized.tflite `
+  --predictor models/edge_ri_predictor_quantized.tflite `
+  --calibration models/edge_calibration.json `
+  --frames 100
+```
+
+For pixel/intensity devices, add the wavelength polynomial plus dark/reference arrays. The runtime performs wavelength calibration, dark/reference loss conversion, non-extrapolating resampling to the exact model grid, per-frame normalization, denoising, RI/resonance inference, spectral OOD scoring, held-out prediction intervals, and physical resonance extraction.
+
+Benchmark output includes P50/P95/P99/mean end-to-end latency, throughput, peak Python heap, and process max RSS where supported. See `docs/HARDWARE_RUNTIME.md` for the sensor protocol and measurement contract.
 
 ## Metric definitions
 
-Wavelength sensitivity for a fixed geometry is:
+Wavelength sensitivity for a fixed geometry:
 
 ```text
 S_lambda = Delta lambda_res / Delta n_analyte  [nm/RIU]
 ```
 
-Figure of merit is calculated from sensitivity magnitude:
+Figure of merit:
 
 ```text
 FOM = abs(S_lambda) / FWHM
 ```
 
-FWHM crossings are linearly interpolated rather than rounded to wavelength-grid samples.
+FWHM crossings are linearly interpolated instead of rounded to wavelength-grid samples.
 
 ## Reproducibility and validation
 
-- Synthetic generation, PyTorch training, TensorFlow training, ensemble training, candidate generation, and grouped splits accept deterministic seeds.
-- Dataset writes produce `.meta.json` provenance sidecars with SHA-256 hashes.
+- Synthetic generation, PyTorch/TensorFlow training, ensemble training, candidate generation, calibration splits, and grouped dataset splits accept deterministic seeds where applicable.
+- Dataset writes and calibration/closed-loop manifests preserve artifact provenance and SHA-256 hashes.
 - Validation splits are grouped by base geometry to prevent RI-sweep leakage.
-- Scientific validation reports fitted fixed-geometry sensitivity/FOM, bootstrap CIs, model baselines, target satisfaction, raw/post-projection constraint rates, uncertainty, and artifact hashes.
-- Advanced design records Pareto rank, calibrated residual intervals, ensemble disagreement, OOD score, fabrication projection distance, and confidence ranking for every candidate.
-- CI runs fatal Ruff checks, bytecode compilation, and the test suite on every push/PR; Python warnings are treated as errors.
-- Tests cover grouped sensitivity, duplicate-RI rejection, COMSOL unit validation, fabrication bounds, conditioned XAI, active-learning handoff, ONNX interface, group leakage, INT8 deployment, scientific validation, COMSOL closed-loop validation, and multi-objective design.
+- Scientific validation separates software/synthetic evidence from COMSOL and experimental evidence.
+- Multi-objective design records Pareto rank, calibrated residual intervals, ensemble disagreement, OOD score, fabrication projection distance, and target-satisfaction ranking.
+- Hardware calibration uses held-out labeled spectra; synthetic calibration must not be reported as experimental coverage.
+- Hardware runtime rejects wavelength extrapolation and exposes measured resonance independently of the neural RI predictor.
+- CI runs fatal Ruff checks, bytecode compilation, and tests on every push/PR; Python warnings are errors.
+- CI covers Python 3.10–3.13 plus the TensorFlow/LiteRT INT8 edge/full-pipeline gate.
 
 Run locally:
 
@@ -319,11 +364,12 @@ pytest -q
 ## Repository layout
 
 ```text
-data/raw/          Raw COMSOL/experimental data (not committed)
-data/processed/    Training-ready datasets (not committed)
-models/            Trained PyTorch/Keras/ONNX/TFLite artifacts (not committed)
-outputs/           Metrics, plots, reports, candidates, and closed-loop artifacts
-src/sprpcf/        Python package
-scripts/           Dataset, validation, optimization, and closed-loop runners
-tests/             Scientific, ML, deployment, and integration tests
+data/raw/          Raw COMSOL/experimental/sensor-capture data (not committed)
+data/processed/    Training- and calibration-ready datasets (not committed)
+models/            PyTorch/Keras/ONNX/TFLite/calibration artifacts (not committed)
+outputs/           Metrics, plots, reports, candidates, closed-loop and hardware evidence
+src/sprpcf/        Core Python package
+scripts/           Dataset, validation, optimization, closed-loop and hardware runners
+tests/             Scientific, ML, deployment, hardware and integration tests
+docs/              Scientific, COMSOL, advanced-AI and hardware protocols
 ```
