@@ -166,13 +166,15 @@ def xai_feature_summary(frame: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"XAI attribution table is missing columns: {missing}")
     values = frame[[*GEOMETRY_COLUMNS, *CONDITION_COLUMNS]].astype(float)
-    return (
+    summary = (
         values.abs()
         .mean(axis=0)
         .sort_values(ascending=False)
         .rename("mean_absolute_attribution")
-        .reset_index(names="feature")
+        .reset_index()
     )
+    summary.columns = ["feature", "mean_absolute_attribution"]
+    return summary
 
 
 def evidence_sha256(path: Path) -> str:
