@@ -39,8 +39,8 @@ jobs:
         run: python -m compileall -q src main.py scripts
       - name: Verify critical imports
         run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.simulation.comsol_sweep"
-      - name: Core tests
-        run: pytest -q --ignore=tests/test_edge_deployment.py --ignore=tests/test_full_pipeline.py
+      - name: Core tests (warnings are errors)
+        run: pytest -q -W error --ignore=tests/test_edge_deployment.py --ignore=tests/test_full_pipeline.py
 
   edge:
     runs-on: ubuntu-latest
@@ -57,8 +57,8 @@ jobs:
           pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu
       - name: Install edge test dependencies
         run: pip install -e ".[dev,edge,onnx]"
-      - name: Edge and end-to-end tests
+      - name: Edge and end-to-end tests (warnings are errors)
         env:
           CUDA_VISIBLE_DEVICES: ""
           TF_CPP_MIN_LOG_LEVEL: "2"
-        run: pytest -q tests/test_edge_deployment.py tests/test_full_pipeline.py
+        run: pytest -q -W error tests/test_edge_deployment.py tests/test_full_pipeline.py
