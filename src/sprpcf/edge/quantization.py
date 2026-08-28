@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable
+import warnings
 
 import numpy as np
 import tensorflow as tf
@@ -32,7 +33,20 @@ def convert_model_to_int8_tflite(
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
     converter.inference_input_type = inference_type
     converter.inference_output_type = inference_type
-    tflite_model = converter.convert()
+
+    # TensorFlow 2.21 can emit this warning for full-INT8 Keras conversion even
+    # when a representative dataset is configured above. Calibration is present
+    # and the generated artifact is subsequently validated as INT8 by tests, so
+    # suppress only this exact TensorFlow-internal false-positive.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Statistics for quantized inputs were expected, but not specified; continuing anyway\.",
+            category=UserWarning,
+            module=r"tensorflow\.lite\.python\.convert",
+        )
+        tflite_model = converter.convert()
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(tflite_model)
 
