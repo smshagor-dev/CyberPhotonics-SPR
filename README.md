@@ -196,6 +196,33 @@ python main.py simulate-stream `
   --duration-sec 10
 ```
 
+## 9. Generate the scientific validation pack
+
+The research validation layer independently fits each fixed-geometry RI sweep, reports bootstrap confidence intervals, compares the neural forward surrogate with a leakage-resistant Ridge baseline, measures inverse target satisfaction, separates raw versus post-projection fabrication validity, and records MC-dropout uncertainty plus dataset/checkpoint SHA-256 provenance.
+
+```powershell
+python scripts/run_validation_pack.py `
+  --data data/processed/synthetic.parquet `
+  --checkpoint models/tandem.pt `
+  --out outputs/validation `
+  --bootstrap-resamples 5000 `
+  --mc-samples 64 `
+  --seed 7
+```
+
+For the physics-loss ablation across deterministic seeds:
+
+```powershell
+python scripts/run_ablation_study.py `
+  --data data/processed/synthetic.parquet `
+  --out outputs/ablation `
+  --seeds 7,17,29 `
+  --epochs 50 `
+  --device cpu
+```
+
+The validation pack exports CSV/JSON evidence, provenance, a Markdown report, and 300-dpi publication plots. See `docs/SCIENTIFIC_VALIDATION.md` for the full evidence protocol. Synthetic outputs remain software/pipeline validation only; manuscript physical claims must use verified COMSOL or experimental data.
+
 ## Metric definitions
 
 Wavelength sensitivity for a fixed geometry is:
@@ -217,8 +244,9 @@ FWHM crossings are linearly interpolated rather than rounded to wavelength-grid 
 - Synthetic generation, PyTorch training, TensorFlow training, and grouped splits accept deterministic seeds.
 - Dataset writes produce `.meta.json` provenance sidecars with SHA-256 hashes.
 - Validation splits are grouped by base geometry to prevent RI-sweep leakage.
+- Scientific validation reports fitted fixed-geometry sensitivity/FOM, bootstrap CIs, model baselines, target satisfaction, raw/post-projection constraint rates, MC-dropout uncertainty, and artifact hashes.
 - CI runs fatal Ruff checks, bytecode compilation, and the test suite on every push/PR.
-- Tests cover grouped sensitivity, duplicate-RI rejection, COMSOL unit validation, fabrication bounds, conditioned XAI, active-learning handoff, ONNX interface, group leakage, and INT8 deployment.
+- Tests cover grouped sensitivity, duplicate-RI rejection, COMSOL unit validation, fabrication bounds, conditioned XAI, active-learning handoff, ONNX interface, group leakage, INT8 deployment, and the scientific validation framework.
 
 Run locally:
 
@@ -235,6 +263,6 @@ data/processed/    Training-ready datasets (not committed)
 models/            Trained PyTorch/Keras/ONNX/TFLite artifacts (not committed)
 outputs/           Metrics, plots, reports, and candidate files
 src/sprpcf/        Python package
-scripts/           Dataset utilities
+scripts/           Dataset utilities and validation runners
 tests/             Scientific, ML, deployment, and integration tests
 ```
