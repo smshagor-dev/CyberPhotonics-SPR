@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterable
 import warnings
 
+from ai_edge_litert.interpreter import Interpreter
 import numpy as np
 import tensorflow as tf
 
@@ -55,11 +56,23 @@ def run_tflite_inference(model_path: Path, inputs: np.ndarray) -> np.ndarray:
     return TFLiteModelRunner(model_path).predict(inputs)
 
 
+def _per_tensor_quantization(details: dict) -> tuple[float, int]:
+    """Read per-tensor quantization parameters from the non-deprecated API."""
+    parameters = details.get("quantization_parameters", {})
+    scales = np.asarray(parameters.get("scales", []), dtype=np.float32)
+    zero_points = np.asarray(parameters.get("zero_points", []), dtype=np.int64)
+    if scales.size != 1 or zero_points.size != 1:
+        raise ValueError("Expected per-tensor quantization parameters for edge inference.")
+    return float(scales[0]), int(zero_points[0])
+
+
 class TFLiteModelRunner:
-    """Reusable TFLite interpreter wrapper with quantization and dynamic-batch handling."""
+    """Reusable LiteRT interpreter wrapper with quantization and dynamic-batch handling."""
 
     def __init__(self, model_path: Path) -> None:
-        self.interpreter = tf.lite.Interpreter(model_path=str(model_path))
+        # TensorFlow's tf.lite.Interpreter is deprecated. LiteRT is the supported
+        # drop-in runtime for .tflite artifacts and preserves the classic API.
+        self.interpreter = Interpreter(model_path=str(model_path))
         self.interpreter.allocate_tensors()
         self._refresh_details()
 
@@ -69,9 +82,9 @@ class TFLiteModelRunner:
 
     @staticmethod
     def _quantize(values: np.ndarray, details: dict) -> np.ndarray:
-        scale, zero_point = details["quantization"]
+        scale, zero_point = _per_tensor_quantization(details)
         if scale <= 0:
-            raise ValueError("Quantized TFLite tensor has invalid scale <= 0.")
+            raise ValueError("Quantized LiteRT tensor has invalid scale <= 0.")
         quantized = np.round(values / scale + zero_point)
         limits = np.iinfo(details["dtype"])
         return np.clip(quantized, limits.min, limits.max).astype(details["dtype"])
@@ -85,7 +98,7 @@ class TFLiteModelRunner:
                 expected == actual or expected == -1 for expected, actual in zip(signature, input_data.shape)
             )
             if not can_resize:
-                raise ValueError(f"TFLite input shape {input_data.shape} is incompatible with {signature}.")
+                raise ValueError(f"LiteRT input shape {input_data.shape} is incompatible with {signature}.")
             self.interpreter.resize_tensor_input(self.input_details["index"], input_data.shape, strict=False)
             self.interpreter.allocate_tensors()
             self._refresh_details()
@@ -100,8 +113,8 @@ class TFLiteModelRunner:
         output = self.interpreter.get_tensor(self.output_details["index"])
 
         if self.output_details["dtype"] in (np.int8, np.uint8):
-            scale, zero_point = self.output_details["quantization"]
+            scale, zero_point = _per_tensor_quantization(self.output_details)
             if scale <= 0:
-                raise ValueError("Quantized TFLite output tensor has invalid scale <= 0.")
+                raise ValueError("Quantized LiteRT output tensor has invalid scale <= 0.")
             output = (output.astype(np.float32) - zero_point) * scale
         return output.astype(np.float32)
