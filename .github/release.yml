@@ -4,6 +4,12 @@ changelog:
       - skip-changelog
       - internal
   categories:
+    - title: "Publication, reviewer, and submission tooling"
+      labels:
+        - publication
+        - reviewer
+        - submission
+        - release-candidate
     - title: "Research and scientific validation"
       labels:
         - research

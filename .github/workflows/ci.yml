@@ -16,7 +16,7 @@ concurrency:
 jobs:
   core:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -38,10 +38,10 @@ jobs:
       - name: Compile
         run: python -m compileall -q src main.py scripts
       - name: Verify critical imports
-        run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.publication.evidence; import sprpcf.simulation.comsol_sweep"
+        run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.publication.evidence; import sprpcf.publication.submission; import sprpcf.simulation.comsol_sweep"
       - name: Validate research release metadata
         if: matrix.python-version == '3.11'
-        run: python scripts/verify_release.py
+        run: python scripts/verify_release.py --expected-version 1.0.0rc1
       - name: Reviewer package CLI smoke test
         if: matrix.python-version == '3.11'
         run: |
@@ -52,7 +52,7 @@ jobs:
           test -f /tmp/reviewer-smoke/REVIEWER_GUIDE.md
           test -f /tmp/reviewer-smoke/CLAIMS_MATRIX.md
           test -f /tmp/reviewer-smoke/checksums.sha256
-      - name: Build polished publication demo
+      - name: Build polished publication and submission demo
         if: matrix.python-version == '3.11'
         env:
           MPLBACKEND: Agg
@@ -65,6 +65,9 @@ jobs:
             --seed 7
           test -f /tmp/publication-demo/DEMO_INDEX.html
           test -f /tmp/publication-demo/reviewer_package/manifest.json
+          test -f /tmp/publication-demo/submission_package/SUPPLEMENTARY_INFORMATION.md
+          test -f /tmp/publication-demo/submission_package/TABLE_S1_VALIDATION_METRICS.csv
+          test -f /tmp/publication-demo/submission_package/submission_checksums.sha256
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v4

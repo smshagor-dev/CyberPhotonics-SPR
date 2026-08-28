@@ -8,7 +8,7 @@ authors:
 repository-code: "https://github.com/smshagor-dev/CyberPhotonics-SPR"
 url: "https://github.com/smshagor-dev/CyberPhotonics-SPR"
 license: "Apache-2.0"
-version: "0.2.0"
+version: "1.0.0rc1"
 keywords:
   - photonic crystal fiber
   - surface plasmon resonance

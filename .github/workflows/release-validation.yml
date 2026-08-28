@@ -12,7 +12,7 @@ permissions:
 jobs:
   package-and-evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
         with:
@@ -45,7 +45,7 @@ jobs:
             --out release-evidence \
             --name "release-${GITHUB_REF_NAME}" \
             --seed 0
-      - name: Build publication demo and reviewer package
+      - name: Build publication demo, reviewer package, and submission package
         env:
           MPLBACKEND: Agg
         run: |
@@ -55,6 +55,8 @@ jobs:
             --wavelengths 128 \
             --bootstrap-resamples 500 \
             --seed 7
+          test -f publication-demo/submission_package/submission_manifest.json
+          test -f publication-demo/submission_package/submission_checksums.sha256
       - name: Build release reviewer index
         run: |
           python scripts/build_reviewer_package.py \
@@ -62,6 +64,14 @@ jobs:
             --title "CyberPhotonics-SPR Release Reviewer Package" \
             --reproducibility-dir release-evidence \
             --release-validation release-validation.json
+      - name: Build release-candidate submission archive
+        run: |
+          python scripts/build_submission_package.py \
+            --reviewer-package publication-demo/reviewer_package \
+            --validation-dir publication-demo/validation \
+            --out release-submission-package \
+            --title "CyberPhotonics-SPR Release Candidate Submission Package" \
+            --journal "venue not specified"
       - uses: actions/upload-artifact@v4
         with:
           name: research-release-${{ github.ref_name }}
@@ -71,6 +81,7 @@ jobs:
             release-validation.json
             release-evidence/
             release-reviewer-package/
+            release-submission-package/
             publication-demo/
 
   edge-runtime:
