@@ -1,0 +1,19 @@
+{
+  "name": "CyberPhotonics-SPR Research",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "args": {
+      "INSTALL_EXTRAS": "dev,onnx,hardware"
+    }
+  },
+  "postCreateCommand": "python scripts/verify_release.py",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ]
+    }
+  }
+}

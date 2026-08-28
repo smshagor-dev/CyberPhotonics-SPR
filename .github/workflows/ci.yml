@@ -39,6 +39,9 @@ jobs:
         run: python -m compileall -q src main.py scripts
       - name: Verify critical imports
         run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.simulation.comsol_sweep"
+      - name: Validate research release metadata
+        if: matrix.python-version == '3.11'
+        run: python scripts/verify_release.py
       - name: Core tests (warnings are errors)
         run: pytest -q -W error --ignore=tests/test_edge_deployment.py --ignore=tests/test_full_pipeline.py
 

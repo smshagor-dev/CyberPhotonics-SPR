@@ -1,0 +1,71 @@
+name: Research Release Validation
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-and-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu
+      - name: Install release dependencies
+        run: pip install -e ".[dev,onnx]"
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          args=(--json-out release-validation.json)
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            args+=(--expected-version "${GITHUB_REF_NAME#v}")
+          fi
+          python scripts/verify_release.py "${args[@]}"
+      - name: Core tests with warnings as errors
+        run: pytest -q -W error --ignore=tests/test_edge_deployment.py --ignore=tests/test_full_pipeline.py
+      - name: Build wheel and source distribution
+        run: python -m build
+      - name: Capture release environment
+        run: python scripts/create_reproducibility_bundle.py --out release-evidence --name "release-${GITHUB_REF_NAME}" --seed 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: research-release-${{ github.ref_name }}
+          path: |
+            dist/
+            release-validation.json
+            release-evidence/
+
+  edge-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu
+      - name: Install edge dependencies
+        run: pip install -e ".[dev,edge,onnx]"
+      - name: Edge and end-to-end tests with warnings as errors
+        env:
+          CUDA_VISIBLE_DEVICES: "-1"
+          TF_CPP_MIN_LOG_LEVEL: "3"
+        run: pytest -q -W error tests/test_edge_deployment.py tests/test_full_pipeline.py
