@@ -1,6 +1,6 @@
 # CyberPhotonics-SPR
 
-A publication-oriented cyber-physical photonics research framework for **PCF-SPR simulation, physics-informed inverse design, active learning, calibrated multi-objective optimization, COMSOL closed-loop verification, and real-time edge sensing**.
+A publication-oriented cyber-physical photonics research framework for **PCF-SPR simulation, physics-informed inverse design, active learning, calibrated multi-objective optimization, COMSOL closed-loop verification, real-time edge sensing, and research-grade reproducibility**.
 
 The repository is organized around three linked pipelines:
 
@@ -326,6 +326,38 @@ For pixel/intensity devices, add the wavelength polynomial plus dark/reference a
 
 Benchmark output includes P50/P95/P99/mean end-to-end latency, throughput, peak Python heap, and process max RSS where supported. See `docs/HARDWARE_RUNTIME.md` for the sensor protocol and measurement contract.
 
+## 13. Research reproducibility and release engineering
+
+Validate citation/version consistency, required research metadata, and repository release hygiene:
+
+```powershell
+python scripts/verify_release.py
+```
+
+Capture a hash-bound experiment/environment bundle for every reportable run:
+
+```powershell
+python scripts/create_reproducibility_bundle.py `
+  --out outputs/repro/experiment_001 `
+  --name experiment_001 `
+  --seed 7 `
+  --data data/processed/training.parquet `
+  --checkpoint models/tandem.pt `
+  --config configs/experiment.yaml
+```
+
+Each bundle records Git state, seed, configuration, exact installed Python-package snapshot, portable artifact paths, and SHA-256 hashes without copying large datasets or models. Generated files include `manifest.json`, `environment.json`, `environment.lock.txt`, `checksums.sha256`, and `REPRODUCE.md`.
+
+The repository also includes:
+
+- `CITATION.cff` with release-version validation.
+- `MODEL_CARD.md` with model scope, intended use, and limitations.
+- `DATASET_CARD.md` separating synthetic, COMSOL, and experimental evidence.
+- `Dockerfile` and `.devcontainer/devcontainer.json` for a reproducible Python 3.11 CPU research environment.
+- `.github/workflows/release-validation.yml` for tag-time package/evidence validation.
+
+The release-validation workflow builds wheel/source distributions and evidence artifacts but does **not** automatically publish to PyPI or create a public GitHub release. See `docs/REPRODUCIBILITY.md` for the full release and DOI/Zenodo-ready protocol.
+
 ## Metric definitions
 
 Wavelength sensitivity for a fixed geometry:
@@ -346,19 +378,23 @@ FWHM crossings are linearly interpolated instead of rounded to wavelength-grid s
 
 - Synthetic generation, PyTorch/TensorFlow training, ensemble training, candidate generation, calibration splits, and grouped dataset splits accept deterministic seeds where applicable.
 - Dataset writes and calibration/closed-loop manifests preserve artifact provenance and SHA-256 hashes.
+- Every reportable experiment can emit a portable manifest, exact package snapshot, and artifact checksum bundle.
+- Release versions are checked for consistency across `pyproject.toml`, package `__version__`, and `CITATION.cff`.
 - Validation splits are grouped by base geometry to prevent RI-sweep leakage.
 - Scientific validation separates software/synthetic evidence from COMSOL and experimental evidence.
 - Multi-objective design records Pareto rank, calibrated residual intervals, ensemble disagreement, OOD score, fabrication projection distance, and target-satisfaction ranking.
 - Hardware calibration uses held-out labeled spectra; synthetic calibration must not be reported as experimental coverage.
 - Hardware runtime rejects wavelength extrapolation and exposes measured resonance independently of the neural RI predictor.
-- CI runs fatal Ruff checks, bytecode compilation, and tests on every push/PR; Python warnings are errors.
+- CI runs fatal Ruff checks, bytecode compilation, release-metadata validation, and tests on every push/PR; Python warnings are errors.
 - CI covers Python 3.10–3.13 plus the TensorFlow/LiteRT INT8 edge/full-pipeline gate.
+- Tag-time release validation builds package/evidence artifacts without auto-publishing them.
 
 Run locally:
 
 ```powershell
 ruff check .
-pytest -q
+python scripts/verify_release.py
+pytest -q -W error
 ```
 
 ## Repository layout
@@ -369,7 +405,10 @@ data/processed/    Training- and calibration-ready datasets (not committed)
 models/            PyTorch/Keras/ONNX/TFLite/calibration artifacts (not committed)
 outputs/           Metrics, plots, reports, candidates, closed-loop and hardware evidence
 src/sprpcf/        Core Python package
-scripts/           Dataset, validation, optimization, closed-loop and hardware runners
-tests/             Scientific, ML, deployment, hardware and integration tests
-docs/              Scientific, COMSOL, advanced-AI and hardware protocols
+scripts/           Dataset, validation, optimization, closed-loop, hardware and release runners
+tests/             Scientific, ML, deployment, hardware, reproducibility and integration tests
+docs/              Scientific, COMSOL, advanced-AI, hardware and reproducibility protocols
+CITATION.cff       Software citation metadata
+MODEL_CARD.md      Model scope, evaluation contract and limitations
+DATASET_CARD.md    Dataset provenance, split policy and evidence boundaries
 ```
