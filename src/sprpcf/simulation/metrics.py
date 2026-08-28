@@ -34,7 +34,22 @@ def resonance_wavelength(wavelength_nm: np.ndarray, loss: np.ndarray) -> tuple[f
     wavelength, spectrum = _validate_spectrum(wavelength_nm, loss)
     peaks, _ = find_peaks(spectrum)
     peak_index = int(peaks[np.argmax(spectrum[peaks])]) if peaks.size else int(np.argmax(spectrum))
-    return float(wavelength[peak_index]), float(spectrum[peak_index])
+    peak_wavelength = float(wavelength[peak_index])
+    peak_loss = float(spectrum[peak_index])
+
+    # Refine the peak below the wavelength-grid spacing with a local quadratic fit.
+    # This reduces discretization bias in sensitivity without extrapolating beyond
+    # the three measured samples around the strongest peak.
+    if 0 < peak_index < wavelength.size - 1:
+        local_x = wavelength[peak_index - 1 : peak_index + 2] - wavelength[peak_index]
+        local_y = spectrum[peak_index - 1 : peak_index + 2]
+        a, b, c = np.polyfit(local_x, local_y, 2)
+        if np.isfinite(a) and np.isfinite(b) and a < 0:
+            vertex = -b / (2.0 * a)
+            if local_x[0] <= vertex <= local_x[-1]:
+                peak_wavelength = float(wavelength[peak_index] + vertex)
+                peak_loss = float(a * vertex**2 + b * vertex + c)
+    return peak_wavelength, peak_loss
 
 
 def _linear_crossing(x0: float, y0: float, x1: float, y1: float, target: float) -> float:

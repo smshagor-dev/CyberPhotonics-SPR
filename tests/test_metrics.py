@@ -50,3 +50,12 @@ def test_grouped_sensitivity_never_mixes_geometries() -> None:
     )
     assert np.allclose(result.iloc[:3], 1000.0)
     assert np.allclose(result.iloc[3:], 500.0)
+
+
+def test_synthetic_ri_sweep_has_stable_subgrid_sensitivity() -> None:
+    from sprpcf.simulation.synthetic import build_synthetic_dataset
+
+    frame = build_synthetic_dataset(samples=20, wavelengths=256, seed=5)
+    sensitivity = frame["sensitivity_nm_per_riu"].to_numpy()
+    assert np.isfinite(sensitivity).all()
+    assert abs(float(np.median(sensitivity)) - 820.0) < 10.0
