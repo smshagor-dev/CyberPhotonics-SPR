@@ -38,10 +38,33 @@ jobs:
       - name: Compile
         run: python -m compileall -q src main.py scripts
       - name: Verify critical imports
-        run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.simulation.comsol_sweep"
+        run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.publication.evidence; import sprpcf.simulation.comsol_sweep"
       - name: Validate research release metadata
         if: matrix.python-version == '3.11'
         run: python scripts/verify_release.py
+      - name: Reviewer package CLI smoke test
+        if: matrix.python-version == '3.11'
+        run: |
+          python scripts/build_reviewer_package.py \
+            --out /tmp/reviewer-smoke \
+            --title "CI Reviewer Package Smoke Test" \
+            --no-release-metadata
+          test -f /tmp/reviewer-smoke/REVIEWER_GUIDE.md
+          test -f /tmp/reviewer-smoke/CLAIMS_MATRIX.md
+          test -f /tmp/reviewer-smoke/checksums.sha256
+      - name: Publication demo smoke test
+        if: matrix.python-version == '3.11'
+        env:
+          MPLBACKEND: Agg
+        run: |
+          python scripts/run_publication_demo.py \
+            --out /tmp/publication-demo \
+            --samples 6 \
+            --wavelengths 64 \
+            --bootstrap-resamples 100 \
+            --seed 7
+          test -f /tmp/publication-demo/DEMO_INDEX.html
+          test -f /tmp/publication-demo/reviewer_package/manifest.json
       - name: Build wheel and source distribution
         if: matrix.python-version == '3.11'
         run: python -m build

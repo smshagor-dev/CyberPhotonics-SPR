@@ -12,7 +12,7 @@ permissions:
 jobs:
   package-and-evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
         with:
@@ -40,14 +40,38 @@ jobs:
       - name: Build wheel and source distribution
         run: python -m build
       - name: Capture release environment
-        run: python scripts/create_reproducibility_bundle.py --out release-evidence --name "release-${GITHUB_REF_NAME}" --seed 0
+        run: |
+          python scripts/create_reproducibility_bundle.py \
+            --out release-evidence \
+            --name "release-${GITHUB_REF_NAME}" \
+            --seed 0
+      - name: Build publication demo and reviewer package
+        env:
+          MPLBACKEND: Agg
+        run: |
+          python scripts/run_publication_demo.py \
+            --out publication-demo \
+            --samples 24 \
+            --wavelengths 128 \
+            --bootstrap-resamples 500 \
+            --seed 7
+      - name: Build release reviewer index
+        run: |
+          python scripts/build_reviewer_package.py \
+            --out release-reviewer-package \
+            --title "CyberPhotonics-SPR Release Reviewer Package" \
+            --reproducibility-dir release-evidence \
+            --release-validation release-validation.json
       - uses: actions/upload-artifact@v4
         with:
           name: research-release-${{ github.ref_name }}
+          if-no-files-found: error
           path: |
             dist/
             release-validation.json
             release-evidence/
+            release-reviewer-package/
+            publication-demo/
 
   edge-runtime:
     runs-on: ubuntu-latest

@@ -17,7 +17,11 @@ REQUIRED_RELEASE_FILES = (
     "Dockerfile",
     ".dockerignore",
     ".devcontainer/devcontainer.json",
+    ".github/release.yml",
     "docs/REPRODUCIBILITY.md",
+    "docs/PUBLICATION_REVIEWER_PACKAGE.md",
+    "scripts/build_reviewer_package.py",
+    "scripts/run_publication_demo.py",
     "pyproject.toml",
 )
 RUNTIME_PREFIXES = ("data/raw/", "data/processed/", "models/", "outputs/")
@@ -80,7 +84,16 @@ def validate_release(repo_root: str | Path = ".", expected_version: str | None =
     if expected_version is not None and project_version != expected_version:
         errors.append(f"Tag/expected version {expected_version!r} does not match project version {project_version!r}.")
 
-    required_citation_fields = ("cff-version", "message", "title", "type", "authors", "repository-code", "license", "version")
+    required_citation_fields = (
+        "cff-version",
+        "message",
+        "title",
+        "type",
+        "authors",
+        "repository-code",
+        "license",
+        "version",
+    )
     for field in required_citation_fields:
         if not citation.get(field):
             errors.append(f"CITATION.cff missing required project field: {field}")
@@ -89,7 +102,8 @@ def validate_release(repo_root: str | Path = ".", expected_version: str | None =
         errors.append("CITATION.cff authors must be a list.")
 
     tracked_runtime = []
-    for path in _tracked_files(root):
+    tracked = _tracked_files(root)
+    for path in tracked:
         if path.endswith("/.gitkeep"):
             continue
         if any(path.startswith(prefix) for prefix in RUNTIME_PREFIXES):
@@ -97,7 +111,7 @@ def validate_release(repo_root: str | Path = ".", expected_version: str | None =
     if tracked_runtime:
         errors.append("Generated/raw runtime artifacts are tracked: " + ", ".join(sorted(tracked_runtime)))
 
-    if not _tracked_files(root):
+    if not tracked:
         warnings.append("Git tracked-file inspection unavailable; runtime-artifact check was skipped.")
 
     return {
