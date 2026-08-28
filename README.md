@@ -455,8 +455,8 @@ For air-hole overlap:
 ```math
 \mathcal{L}_{overlap}
 =
-\operatorname{mean}\left[
-\operatorname{ReLU}\left(
+\mathrm{mean}\left[
+\mathrm{ReLU}\left(
 \frac{d-\Lambda}{\max(\Lambda,\epsilon)}
 \right)^2
 \right].
@@ -467,10 +467,10 @@ For any physical variable `x` with fabrication limits `l` and `u`, the normalize
 ```math
 \mathcal{L}_{bound}(x)
 =
-\operatorname{mean}\left[
-\operatorname{ReLU}\left(\frac{l-x}{u-l}\right)^2
+\mathrm{mean}\left[
+\mathrm{ReLU}\left(\frac{l-x}{u-l}\right)^2
 +
-\operatorname{ReLU}\left(\frac{x-u}{u-l}\right)^2
+\mathrm{ReLU}\left(\frac{x-u}{u-l}\right)^2
 \right].
 ```
 
@@ -557,7 +557,7 @@ The practical composite ranking score used by the implementation is
 ```math
 C
 =
-\operatorname{mean}(e_j)
+\mathrm{mean}(e_j)
 +0.25p
 +0.20\max(o-1,0)
 +0.10(1-c),
@@ -575,7 +575,7 @@ The reported confidence-ranking value is
 R
 =
 \frac{
-\exp[-\operatorname{clip}(C,0,50)]
+\exp[-\mathrm{clip}(C,0,50)]
 }{
 1+\max(o-1,0)
 }.
