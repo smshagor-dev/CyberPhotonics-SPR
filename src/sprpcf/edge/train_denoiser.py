@@ -4,6 +4,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+import warnings
 
 import numpy as np
 import tensorflow as tf
@@ -131,6 +132,18 @@ def _tflite_predict_many(runner: TFLiteModelRunner, inputs: np.ndarray) -> tuple
     return np.asarray(outputs, dtype=np.float32), np.asarray(latencies, dtype=np.float64)
 
 
+def _save_keras_model_without_external_numpy_warning(model: tf.keras.Model, output_path: Path) -> None:
+    """Save Keras model while isolating a NumPy-2/Keras dependency deprecation."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"__array__ implementation doesn't accept a copy keyword.*",
+            category=DeprecationWarning,
+            module=r"keras\.src\.backend\.tensorflow\.core",
+        )
+        model.save(output_path, include_optimizer=False)
+
+
 def train_edge_models(
     data_path: Path,
     denoiser_out: Path,
@@ -182,9 +195,9 @@ def train_edge_models(
 
     denoiser_out.parent.mkdir(parents=True, exist_ok=True)
     predictor_out.parent.mkdir(parents=True, exist_ok=True)
-    denoiser.save(denoiser_out, include_optimizer=False)
+    _save_keras_model_without_external_numpy_warning(denoiser, denoiser_out)
     predictor.compile(optimizer=tf.keras.optimizers.Adam(1e-3), loss="mse", metrics=["mae"])
-    predictor.save(predictor_out, include_optimizer=False)
+    _save_keras_model_without_external_numpy_warning(predictor, predictor_out)
 
     denoised_prediction = denoiser.predict(noisy_val[..., None], verbose=0)
     target_prediction = predictor.predict(denoised_prediction, verbose=0)
