@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import logging
 from pathlib import Path
 import warnings
 
@@ -50,7 +51,7 @@ def export_inverse_generator_onnx(
     condition_scale: Iterable[float],
     geometry_mean: Iterable[float],
     geometry_scale: Iterable[float],
-    opset: int = 17,
+    opset: int = 18,
 ) -> None:
     """Export inverse generator as physical metrics + RI -> bounded physical geometry."""
     metric_mean_values = list(metric_mean)
@@ -68,33 +69,38 @@ def export_inverse_generator_onnx(
     dummy_condition = torch.tensor([condition_mean_values], dtype=torch.float32)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # PyTorch's torch.export-based ONNX path prefers dynamic_shapes over the
-    # deprecated dynamic_axes compatibility layer when dynamo=True. One shared
-    # symbolic batch dimension preserves the relationship between both inputs.
-    batch = torch.export.Dim("batch", min=1)
+    # Let torch.export infer the shared symbolic batch relationship. Named shared
+    # dimensions currently cause PyTorch's ONNX renamer to warn even though the
+    # inferred constraint is valid; AUTO keeps the dimension dynamic without
+    # entering that deprecated/ambiguous rename path.
     dynamic_shapes = {
-        "physical_metrics": {0: batch},
-        "analyte_ri": {0: batch},
+        "physical_metrics": {0: torch.export.Dim.AUTO},
+        "analyte_ri": {0: torch.export.Dim.AUTO},
     }
 
-    # PyTorch/ONNX currently emits one dependency-internal TreeSpec FutureWarning
-    # on some supported versions. It is unrelated to this model/export contract,
-    # so suppress only that exact third-party warning while keeping all project
-    # warnings visible (and CI promotes them to errors).
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"`isinstance\(treespec, LeafSpec\)` is deprecated.*",
-            category=FutureWarning,
-            module=r"copyreg",
-        )
-        torch.onnx.export(
-            wrapper,
-            (dummy_metrics, dummy_condition),
-            output_path,
-            input_names=["target_metrics", "analyte_ri"],
-            output_names=["geometry"],
-            dynamic_shapes=dynamic_shapes,
-            dynamo=True,
-            opset_version=opset,
-        )
+    # The exporter probes optional torchvision registrations even when this model
+    # does not use torchvision operators. Silence only that internal probe logger;
+    # project warnings remain visible and CI promotes them to errors.
+    registration_logger = logging.getLogger("torch.onnx._internal.exporter._registration")
+    previous_registration_level = registration_logger.level
+    registration_logger.setLevel(logging.ERROR)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"`isinstance\(treespec, LeafSpec\)` is deprecated.*",
+                category=FutureWarning,
+                module=r"copyreg",
+            )
+            torch.onnx.export(
+                wrapper,
+                (dummy_metrics, dummy_condition),
+                output_path,
+                input_names=["target_metrics", "analyte_ri"],
+                output_names=["geometry"],
+                dynamic_shapes=dynamic_shapes,
+                dynamo=True,
+                opset_version=opset,
+            )
+    finally:
+        registration_logger.setLevel(previous_registration_level)
