@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+import warnings
 
 import torch
 from torch import nn
@@ -66,16 +67,34 @@ def export_inverse_generator_onnx(
     dummy_metrics = torch.tensor([metric_mean_values], dtype=torch.float32)
     dummy_condition = torch.tensor([condition_mean_values], dtype=torch.float32)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.onnx.export(
-        wrapper,
-        (dummy_metrics, dummy_condition),
-        output_path,
-        input_names=["target_metrics", "analyte_ri"],
-        output_names=["geometry"],
-        dynamic_axes={
-            "target_metrics": {0: "batch"},
-            "analyte_ri": {0: "batch"},
-            "geometry": {0: "batch"},
-        },
-        opset_version=opset,
-    )
+
+    # PyTorch's torch.export-based ONNX path prefers dynamic_shapes over the
+    # deprecated dynamic_axes compatibility layer when dynamo=True. One shared
+    # symbolic batch dimension preserves the relationship between both inputs.
+    batch = torch.export.Dim("batch", min=1)
+    dynamic_shapes = {
+        "physical_metrics": {0: batch},
+        "analyte_ri": {0: batch},
+    }
+
+    # PyTorch/ONNX currently emits one dependency-internal TreeSpec FutureWarning
+    # on some supported versions. It is unrelated to this model/export contract,
+    # so suppress only that exact third-party warning while keeping all project
+    # warnings visible (and CI promotes them to errors).
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`isinstance\(treespec, LeafSpec\)` is deprecated.*",
+            category=FutureWarning,
+            module=r"copyreg",
+        )
+        torch.onnx.export(
+            wrapper,
+            (dummy_metrics, dummy_condition),
+            output_path,
+            input_names=["target_metrics", "analyte_ri"],
+            output_names=["geometry"],
+            dynamic_shapes=dynamic_shapes,
+            dynamo=True,
+            opset_version=opset,
+        )
