@@ -5,16 +5,26 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sprpcf"
 version = "0.2.0"
-description = "ML-driven inverse design and edge denoising for PCF-SPR sensors"
+description = "Research framework for PCF-SPR simulation, conditioned inverse design, active learning, and edge inference"
+readme = "README.md"
 requires-python = ">=3.10,<3.14"
-dependencies = ["numpy>=1.24", "pandas>=2.0", "scipy>=1.10", "scikit-learn>=1.3", "torch>=2.1", "pyyaml>=6.0", "tqdm>=4.66"]
+dependencies = [
+  "numpy>=1.24,<3",
+  "pandas>=2.0,<3",
+  "pyarrow>=14",
+  "scipy>=1.10",
+  "scikit-learn>=1.3",
+  "matplotlib>=3.7",
+  "torch>=2.1",
+  "tqdm>=4.66",
+  "pyyaml>=6.0",
+]
 
 [project.optional-dependencies]
-io = ["pyarrow>=14.0"]
-onnx = ["onnx>=1.15", "onnxscript>=0.1.0", "onnxruntime>=1.16"]
 edge = ["tensorflow>=2.14"]
+onnx = ["onnx>=1.15", "onnxscript>=0.1.0", "onnxruntime>=1.16"]
 comsol = ["mph>=1.2"]
-xai = ["matplotlib>=3.7", "shap>=0.45"]
+xai = ["shap>=0.45"]
 dev = ["pytest>=7.4", "ruff>=0.6"]
 
 [tool.setuptools.packages.find]
@@ -24,3 +34,10 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

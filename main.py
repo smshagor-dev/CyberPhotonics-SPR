@@ -6,17 +6,27 @@ import time
 from pathlib import Path
 
 
-DEFAULT_DATASET = Path("data/dataset.parquet")
+DEFAULT_DATASET = Path("data/processed/synthetic.parquet")
 DEFAULT_MODEL_DIR = Path("models")
 
 
 def generate_data(samples: int, output: Path, wavelengths: int, seed: int) -> None:
     from sprpcf.simulation.comsol_sweep import write_dataset
-    from sprpcf.simulation.synthetic import build_synthetic_dataset
+    from sprpcf.simulation.synthetic import DEFAULT_ANALYTE_RI, build_synthetic_dataset
 
     frame = build_synthetic_dataset(samples=samples, wavelengths=wavelengths, seed=seed)
-    write_dataset(frame, output)
-    print(f"Wrote {len(frame)} samples to {output}")
+    write_dataset(
+        frame,
+        output,
+        metadata={
+            "source": "synthetic",
+            "seed": seed,
+            "base_geometries": samples,
+            "wavelength_samples": wavelengths,
+            "analyte_ri_values": list(DEFAULT_ANALYTE_RI),
+        },
+    )
+    print(f"Wrote {len(frame)} rows ({samples} base geometries) to {output}")
 
 
 def train_inverse(args: argparse.Namespace) -> None:
@@ -35,6 +45,7 @@ def train_inverse(args: argparse.Namespace) -> None:
         alpha=args.alpha,
         beta=args.beta,
         dispersion_weight=args.dispersion_weight,
+        seed=args.seed,
     )
     print(json.dumps(metrics, indent=2))
 
@@ -53,6 +64,7 @@ def train_edge(args: argparse.Namespace) -> None:
         quantize=args.quantize,
         denoiser_tflite_out=export_dir / "edge_denoiser_quantized.tflite",
         predictor_tflite_out=export_dir / "edge_ri_predictor_quantized.tflite",
+        seed=args.seed,
     )
     print(json.dumps(metrics, indent=2))
 
@@ -96,8 +108,7 @@ def simulate_stream(
         started = time.perf_counter()
         denoised = denoiser.predict(noisy[index : index + 1, :, None])
         prediction = predictor.predict(denoised)[0]
-        latency_ms = (time.perf_counter() - started) * 1000.0
-        latencies.append(latency_ms)
+        latencies.append((time.perf_counter() - started) * 1000.0)
         psnr_values.append(psnr(clean[index : index + 1, :, None], denoised))
         ri_errors.append(float(abs(prediction[0] - targets[index, 0])))
         frames += 1
@@ -108,6 +119,7 @@ def simulate_stream(
         "average_denoising_psnr": float(np.mean(psnr_values)),
         "predicted_ri_mae": float(np.mean(ri_errors)),
         "average_latency_ms": float(np.mean(latencies)),
+        "p95_latency_ms": float(np.percentile(latencies, 95)),
         "fps": float(frames / elapsed),
     }
     print(json.dumps(stats, indent=2))
@@ -130,6 +142,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         batch_size=args.batch_size,
         device_name=args.device,
         dispersion_weight=args.dispersion_weight,
+        seed=args.seed,
     )
     edge_metrics = train_edge_models(
         data_path=args.data,
@@ -141,6 +154,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
         quantize=True,
         denoiser_tflite_out=args.export_dir / "edge_denoiser_quantized.tflite",
         predictor_tflite_out=args.export_dir / "edge_ri_predictor_quantized.tflite",
+        seed=args.seed,
     )
     stream_metrics = simulate_stream(args.data, args.export_dir, args.duration_sec, args.noise_std, args.drift_std)
     print(json.dumps({"inverse": inverse_metrics, "edge": edge_metrics, "stream": stream_metrics}, indent=2))
@@ -150,14 +164,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PCF-SPR inverse design and edge deployment orchestrator.")
     subparsers = parser.add_subparsers(dest="command")
 
-    generate = subparsers.add_parser("generate-data", help="Generate synthetic PCF-SPR training data.")
-    generate.add_argument("--samples", type=int, default=1000)
+    generate = subparsers.add_parser("generate-data", help="Generate fixed-geometry RI-sweep synthetic data.")
+    generate.add_argument("--samples", type=int, default=100, help="Number of base geometries; each gets a five-point RI sweep.")
     generate.add_argument("--wavelengths", type=int, default=256)
     generate.add_argument("--seed", type=int, default=7)
     generate.add_argument("--out", type=Path, default=DEFAULT_DATASET)
     generate.set_defaults(func=lambda args: generate_data(args.samples, args.out, args.wavelengths, args.seed))
 
-    inverse = subparsers.add_parser("train-inverse", help="Train tandem inverse model and export ONNX.")
+    inverse = subparsers.add_parser("train-inverse", help="Train conditioned tandem inverse model and export ONNX.")
     inverse.add_argument("--data", type=Path, default=DEFAULT_DATASET)
     inverse.add_argument("--epochs", type=int, default=100)
     inverse.add_argument("--forward-epochs", type=int, default=None)
@@ -166,8 +180,9 @@ def build_parser() -> argparse.ArgumentParser:
     inverse.add_argument("--lr", type=float, default=1e-3)
     inverse.add_argument("--device", default="auto")
     inverse.add_argument("--alpha", type=float, default=1.0)
-    inverse.add_argument("--beta", type=float, default=1e-3)
+    inverse.add_argument("--beta", type=float, default=1.0)
     inverse.add_argument("--dispersion-weight", type=float, default=0.0)
+    inverse.add_argument("--seed", type=int, default=7)
     inverse.add_argument("--checkpoint", type=Path, default=DEFAULT_MODEL_DIR / "tandem.pt")
     inverse.add_argument("--export-onnx", type=Path, default=DEFAULT_MODEL_DIR / "inverse_pcf_spr.onnx")
     inverse.set_defaults(func=train_inverse)
@@ -178,12 +193,13 @@ def build_parser() -> argparse.ArgumentParser:
     edge.add_argument("--batch-size", type=int, default=64)
     edge.add_argument("--device", default="auto")
     edge.add_argument("--quantize", action="store_true")
+    edge.add_argument("--seed", type=int, default=7)
     edge.add_argument("--export-dir", type=Path, default=DEFAULT_MODEL_DIR)
     edge.set_defaults(func=train_edge)
 
-    pipeline = subparsers.add_parser("run-pipeline", help="Run A -> B -> C end to end.")
+    pipeline = subparsers.add_parser("run-pipeline", help="Run synthetic data -> inverse model -> edge model -> benchmark.")
     pipeline.add_argument("--full", action="store_true")
-    pipeline.add_argument("--samples", type=int, default=1000)
+    pipeline.add_argument("--samples", type=int, default=100)
     pipeline.add_argument("--wavelengths", type=int, default=256)
     pipeline.add_argument("--seed", type=int, default=7)
     pipeline.add_argument("--data", type=Path, default=DEFAULT_DATASET)
@@ -199,7 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--drift-std", type=float, default=0.03)
     pipeline.set_defaults(func=run_pipeline)
 
-    stream = subparsers.add_parser("simulate-stream", help="Benchmark quantized TFLite models on streaming spectra.")
+    stream = subparsers.add_parser("simulate-stream", help="Benchmark quantized TFLite models on stored spectra.")
     stream.add_argument("--data", type=Path, default=DEFAULT_DATASET)
     stream.add_argument("--tflite-dir", type=Path, default=DEFAULT_MODEL_DIR)
     stream.add_argument("--duration-sec", type=float, default=10.0)

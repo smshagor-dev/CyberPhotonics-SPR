@@ -1,62 +1,240 @@
-# ML-Driven Inverse Design and Edge Processing for PCF-SPR Sensors
+# CyberPhotonics-SPR
 
-Research framework for PCF-SPR simulation, inverse design, active learning, explainability, and edge spectral processing.
+Research framework for photonic crystal fiber surface plasmon resonance (PCF-SPR) simulation, conditioned ML inverse design, active learning, and edge spectral inference.
 
-## Correctness changes in v0.2
+The framework has three linked pipelines:
 
-Sensitivity and FOM are computed only across analyte-RI sweeps at fixed geometry. The forward surrogate uses pitch, d/Λ, metal thickness, channel radius, and analyte RI. The inverse network produces geometry while conditioning on analyte RI. Train/validation splitting keeps RI points from the same synthetic geometry together.
+- **A — Physics/data:** COMSOL sweeps through `mph`, spectral metric extraction, explicit unit validation, and synthetic fixed-geometry RI sweeps when COMSOL is unavailable.
+- **B — ML inverse design:** PyTorch forward surrogate conditioned on sensor geometry **and analyte RI**, plus a tandem inverse generator with fabrication penalties and bounded ONNX output.
+- **C — Edge inference:** 1D-CNN denoising and RI/resonance prediction with validated full-INT8 TFLite export and latency/accuracy reporting.
 
-Active-learning uncertainty uses dropout that is present during training, and selected candidates can be sent directly to COMSOL. Fabrication bounds cover pitch, d/Λ, metal thickness, channel radius, and overlap.
-
-COMSOL expressions support `wavelength_scale_to_nm` and `loss_scale_to_db_per_cm` in YAML. Configure them if model expressions are not already in nm and dB/cm.
+Synthetic data is for pipeline validation only. Physical research conclusions should be based on verified COMSOL/experimental data.
 
 ## Install
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e ".[io,onnx,edge,comsol,xai,dev]"
+pip install -e ".[edge,onnx,xai,comsol,dev]"
 ```
 
-## Synthetic validation
+Python 3.10–3.13 is supported by the package metadata. COMSOL automation additionally requires a licensed COMSOL installation compatible with `mph`.
+
+## 1. Generate scientifically valid synthetic data
+
+Synthetic sensitivity is no longer estimated across unrelated random geometries. Each base geometry receives a fixed RI sweep, and sensitivity is calculated only inside that geometry group.
+
 ```powershell
-python scripts/generate_synthetic_dataset.py --samples 500 --out data/processed/synthetic.parquet
+python scripts/generate_synthetic_dataset.py --samples 100 --out data/processed/synthetic.parquet
 ```
-Synthetic data validates the software pipeline; it is not a substitute for FEM evidence.
 
-## Inverse design
+`--samples` means **base geometries**. The default five-point RI sweep produces 500 rows. A provenance sidecar is written beside every dataset with row/column metadata and a SHA-256 content hash.
+
+## 2. Train conditioned tandem inverse design
+
 ```powershell
-python -m sprpcf.ml.train_tandem --data data/processed/synthetic.parquet --epochs 25 --out models/tandem.pt
+python -m sprpcf.ml.train_tandem `
+  --data data/processed/synthetic.parquet `
+  --epochs 25 `
+  --out models/tandem.pt `
+  --onnx-out models/inverse_pcf_spr.onnx `
+  --seed 7
 ```
-The ONNX inverse interface accepts both `target_metrics` and `analyte_ri`.
 
-## Edge models
+The forward surrogate uses:
+
+```text
+pitch_um
+d_over_lambda
+metal_thickness_nm
+channel_radius_um
+analyte_ri
+```
+
+The inverse model receives target sensing metrics plus analyte RI and generates the four fabrication-design variables. Train/validation splitting is grouped by base geometry, so different RI points from one geometry cannot leak into both splits.
+
+The exported inverse ONNX interface uses physical units:
+
+```text
+inputs:  target_metrics [sensitivity, FOM, lambda_res], analyte_ri
+output:  geometry [pitch_um, d_over_lambda, metal_thickness_nm, channel_radius_um]
+```
+
+Output geometry is projected to the supported fabrication envelope.
+
+## 3. Fabrication constraints
+
+The current supported envelope is:
+
+```text
+0.20 <= d_over_lambda <= 0.90
+0.8 um <= pitch_um <= 4.0 um
+15 nm <= metal_thickness_nm <= 80 nm
+0.20 um <= channel_radius_um <= 1.50 um
+air-hole diameter < pitch
+```
+
+These constraints are validated for COMSOL inputs, penalized during inverse training, and enforced on physical ONNX output.
+
+## 4. Explainability
+
 ```powershell
-python -m sprpcf.edge.train_denoiser --data data/processed/synthetic.parquet --epochs 20 --batch-size 64 --device auto --quantize
+python -m sprpcf.ml.explainability `
+  --checkpoint models/tandem.pt `
+  --data data/processed/synthetic.parquet `
+  --out outputs/feature_attribution.csv `
+  --heatmap outputs/feature_attribution.png
 ```
-Outputs are `edge_denoiser.keras`, `edge_ri_predictor.keras` and their quantized TFLite counterparts. Quantized evaluation reports post-INT8 accuracy, P50/P95 denoiser latency, and model sizes.
 
-Dataset replay (not a hardware driver):
+Integrated Gradients and optional SHAP now operate in the same standardized five-feature input space used to train the forward model. Analyte RI is included as a condition feature instead of being silently omitted.
+
+## 5. Active learning
+
+Candidate files must contain:
+
+```text
+sensitivity_nm_per_riu
+fom_per_riu
+lambda_res_nm
+analyte_ri
+```
+
+Select uncertain candidates with trained MC dropout:
+
 ```powershell
-python -m sprpcf.edge.realtime_feed --data data/processed/synthetic.parquet --model models/edge_denoiser.keras --ri-model models/edge_ri_predictor.keras
+python -m sprpcf.ml.active_learning `
+  --checkpoint models/tandem.pt `
+  --candidates data/processed/candidates.csv `
+  --threshold 0.05 `
+  --out outputs/uncertain_candidates.csv
 ```
 
-Full INT8 manual export requires calibration data:
+To close the loop and run **only the selected generated geometries** in COMSOL:
+
 ```powershell
-python -m sprpcf.edge.export_tflite --model models/edge_denoiser.keras --out models/denoiser.tflite --quantization int8 --calibration-data data/processed/synthetic.parquet
+python -m sprpcf.ml.active_learning `
+  --checkpoint models/tandem.pt `
+  --candidates data/processed/candidates.csv `
+  --threshold 0.05 `
+  --out outputs/uncertain_candidates.csv `
+  --comsol-model path\to\pcf_spr.mph `
+  --comsol-config sweep.example.yaml `
+  --comsol-out data/raw/active_learning_comsol.parquet
 ```
 
-## COMSOL
+## 6. COMSOL sweep
+
 ```powershell
-python -m sprpcf.simulation.comsol_sweep --model path\to\pcf_spr.mph --config sweep.example.yaml --out data/raw/comsol_sweep.parquet
+python -m sprpcf.simulation.comsol_sweep `
+  --model path\to\pcf_spr.mph `
+  --config sweep.example.yaml `
+  --out data/raw/comsol_sweep.parquet
 ```
-Sensitivity is `Delta(lambda_res) / Delta(n_analyte)` at identical geometry. FOM is sensitivity divided by FWHM.
 
-## Fabrication bounds
-- `0.20 <= d_over_lambda <= 0.90`
-- `0.8 um <= pitch_um <= 4.0 um`
-- `15 nm <= metal_thickness_nm <= 80 nm`
-- `0.10 um <= channel_radius_um <= 2.0 um`
-- air-hole diameter must not exceed pitch.
+Sensitivity is calculated only for rows sharing identical geometry while analyte RI changes. Duplicate RI values inside one fixed-geometry sweep are rejected rather than producing invalid gradients.
 
-## Reproducibility
-Training exposes deterministic seeds and checkpoints store schema/scaler metadata. GitHub Actions runs syntax, lint, packaging, and core tests on Python 3.10-3.12. For publishable claims, archive the exact COMSOL model, solver/version settings, raw FEM data, checkpoint, environment lock, and benchmark hardware with the manuscript artifacts.
+The YAML file includes an explicit unit contract:
+
+```yaml
+wavelength_scale_to_nm: 1.0
+loss_scale_to_db_per_cm: 1.0
+expected_wavelength_nm: [400.0, 1000.0]
+```
+
+If COMSOL returns wavelength in meters, set `wavelength_scale_to_nm: 1.0e9`. Implausible wavelength ranges fail fast instead of silently contaminating research results.
+
+## 7. Train and validate edge models
+
+```powershell
+python -m sprpcf.edge.train_denoiser `
+  --data data/processed/synthetic.parquet `
+  --epochs 20 `
+  --batch-size 64 `
+  --device auto `
+  --quantize `
+  --seed 7
+```
+
+Artifacts:
+
+```text
+models/edge_denoiser.keras
+models/edge_ri_predictor.keras
+models/edge_denoiser_quantized.tflite
+models/edge_ri_predictor_quantized.tflite
+```
+
+When `--quantize` is enabled, the framework evaluates the actual INT8 models and reports denoising PSNR/SSIM, RI and resonance MAE/R², float-vs-INT8 error deltas, P50/P95 latency, and model sizes.
+
+Standalone full-INT8 export requires calibration data and will fail if it is omitted:
+
+```powershell
+python -m sprpcf.edge.export_tflite `
+  --model models/edge_denoiser.keras `
+  --out models/edge_denoiser_quantized.tflite `
+  --quantization int8 `
+  --calibration-data data/processed/synthetic.parquet
+```
+
+## 8. Replay a simulated sensor stream
+
+```powershell
+python -m sprpcf.edge.realtime_feed `
+  --data data/processed/synthetic.parquet `
+  --model models/edge_denoiser.keras `
+  --ri-model models/edge_ri_predictor.keras
+```
+
+This command is explicitly a **stored-spectrum sensor replay**, not a hardware acquisition driver. Each noisy measured spectrum is normalized from its own observed statistics before inference.
+
+Quantized benchmark:
+
+```powershell
+python main.py simulate-stream `
+  --data data/processed/synthetic.parquet `
+  --tflite-dir models `
+  --duration-sec 10
+```
+
+## Metric definitions
+
+Wavelength sensitivity for a fixed geometry is:
+
+```text
+S_lambda = Delta lambda_res / Delta n_analyte  [nm/RIU]
+```
+
+Figure of merit is calculated from sensitivity magnitude:
+
+```text
+FOM = abs(S_lambda) / FWHM
+```
+
+FWHM crossings are linearly interpolated rather than rounded to wavelength-grid samples.
+
+## Reproducibility and validation
+
+- Synthetic generation, PyTorch training, TensorFlow training, and grouped splits accept deterministic seeds.
+- Dataset writes produce `.meta.json` provenance sidecars with SHA-256 hashes.
+- Validation splits are grouped by base geometry to prevent RI-sweep leakage.
+- CI runs fatal Ruff checks, bytecode compilation, and the test suite on every push/PR.
+- Tests cover grouped sensitivity, duplicate-RI rejection, COMSOL unit validation, fabrication bounds, conditioned XAI, active-learning handoff, ONNX interface, group leakage, and INT8 deployment.
+
+Run locally:
+
+```powershell
+ruff check .
+pytest -q
+```
+
+## Repository layout
+
+```text
+data/raw/          Raw COMSOL/experimental data (not committed)
+data/processed/    Training-ready datasets (not committed)
+models/            Trained PyTorch/Keras/ONNX/TFLite artifacts (not committed)
+outputs/           Metrics, plots, reports, and candidate files
+src/sprpcf/        Python package
+scripts/           Dataset utilities
+tests/             Scientific, ML, deployment, and integration tests
+```

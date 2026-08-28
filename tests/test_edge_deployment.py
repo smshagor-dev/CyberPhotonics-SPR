@@ -49,3 +49,10 @@ def test_sensor_feed_simulator_reports_latency(tmp_path) -> None:
     assert len(frames) == 2
     assert all(frame.latency_ms >= 0.0 for frame in frames)
     assert frames[0].denoised_spectrum.shape == (16,)
+
+
+def test_int8_cli_requires_calibration_data(tmp_path) -> None:
+    from sprpcf.edge.export_tflite import convert_to_tflite
+
+    with pytest.raises(ValueError, match="calibration-data"):
+        convert_to_tflite(tmp_path / "model.keras", tmp_path / "model.tflite", "int8", None)

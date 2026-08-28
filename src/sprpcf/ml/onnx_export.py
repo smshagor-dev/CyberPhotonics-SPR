@@ -1,12 +1,81 @@
 from __future__ import annotations
+
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
+
 import torch
 from torch import nn
+
+from sprpcf.ml.losses import clamp_physical_geometry
 from sprpcf.ml.tandem import InverseGenerator
+
+
 class PhysicalInverseGenerator(nn.Module):
-    def __init__(self,inverse,metric_mean,metric_scale,design_mean,design_scale): super().__init__(); self.inverse=inverse; self.register_buffer("metric_mean",torch.tensor(list(metric_mean),dtype=torch.float32)); self.register_buffer("metric_scale",torch.tensor(list(metric_scale),dtype=torch.float32)); self.register_buffer("design_mean",torch.tensor(list(design_mean),dtype=torch.float32)); self.register_buffer("design_scale",torch.tensor(list(design_scale),dtype=torch.float32))
-    def forward(self,physical_metrics,analyte_ri): return self.inverse((physical_metrics-self.metric_mean)/self.metric_scale,analyte_ri)*self.design_scale+self.design_mean
-def export_inverse_generator_onnx(inverse:InverseGenerator,output_path:Path,metric_mean:Iterable[float],metric_scale:Iterable[float],design_mean:Iterable[float],design_scale:Iterable[float],opset:int=17):
-    wrapper=PhysicalInverseGenerator(inverse.cpu().eval(),metric_mean,metric_scale,design_mean,design_scale).eval(); output_path.parent.mkdir(parents=True,exist_ok=True)
-    torch.onnx.export(wrapper,(torch.tensor([list(metric_mean)],dtype=torch.float32),torch.tensor([[1.35]],dtype=torch.float32)),output_path,input_names=["target_metrics","analyte_ri"],output_names=["geometry"],dynamic_axes={"target_metrics":{0:"batch"},"analyte_ri":{0:"batch"},"geometry":{0:"batch"}},opset_version=opset)
+    """ONNX wrapper: physical target metrics + analyte RI -> physical geometry."""
+
+    def __init__(
+        self,
+        inverse: InverseGenerator,
+        metric_mean: Iterable[float],
+        metric_scale: Iterable[float],
+        condition_mean: Iterable[float],
+        condition_scale: Iterable[float],
+        geometry_mean: Iterable[float],
+        geometry_scale: Iterable[float],
+    ) -> None:
+        super().__init__()
+        self.inverse = inverse
+        self.register_buffer("metric_mean", torch.tensor(list(metric_mean), dtype=torch.float32))
+        self.register_buffer("metric_scale", torch.tensor(list(metric_scale), dtype=torch.float32))
+        self.register_buffer("condition_mean", torch.tensor(list(condition_mean), dtype=torch.float32))
+        self.register_buffer("condition_scale", torch.tensor(list(condition_scale), dtype=torch.float32))
+        self.register_buffer("geometry_mean", torch.tensor(list(geometry_mean), dtype=torch.float32))
+        self.register_buffer("geometry_scale", torch.tensor(list(geometry_scale), dtype=torch.float32))
+
+    def forward(self, physical_metrics: torch.Tensor, analyte_ri: torch.Tensor) -> torch.Tensor:
+        standardized_metrics = (physical_metrics - self.metric_mean) / self.metric_scale
+        standardized_condition = (analyte_ri - self.condition_mean) / self.condition_scale
+        standardized_geometry = self.inverse(standardized_metrics, standardized_condition)
+        physical_geometry = standardized_geometry * self.geometry_scale + self.geometry_mean
+        return clamp_physical_geometry(physical_geometry)
+
+
+def export_inverse_generator_onnx(
+    inverse: InverseGenerator,
+    output_path: Path,
+    metric_mean: Iterable[float],
+    metric_scale: Iterable[float],
+    condition_mean: Iterable[float],
+    condition_scale: Iterable[float],
+    geometry_mean: Iterable[float],
+    geometry_scale: Iterable[float],
+    opset: int = 17,
+) -> None:
+    """Export inverse generator as physical metrics + RI -> bounded physical geometry."""
+    metric_mean_values = list(metric_mean)
+    condition_mean_values = list(condition_mean)
+    wrapper = PhysicalInverseGenerator(
+        inverse.cpu().eval(),
+        metric_mean_values,
+        metric_scale,
+        condition_mean_values,
+        condition_scale,
+        geometry_mean,
+        geometry_scale,
+    ).eval()
+    dummy_metrics = torch.tensor([metric_mean_values], dtype=torch.float32)
+    dummy_condition = torch.tensor([condition_mean_values], dtype=torch.float32)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        wrapper,
+        (dummy_metrics, dummy_condition),
+        output_path,
+        input_names=["target_metrics", "analyte_ri"],
+        output_names=["geometry"],
+        dynamic_axes={
+            "target_metrics": {0: "batch"},
+            "analyte_ri": {0: "batch"},
+            "geometry": {0: "batch"},
+        },
+        opset_version=opset,
+    )

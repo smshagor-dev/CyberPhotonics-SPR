@@ -1,35 +1,81 @@
 from __future__ import annotations
+
 from pathlib import Path
-import numpy as np, pandas as pd, torch
-from sklearn.model_selection import train_test_split
+
+import numpy as np
+import pandas as pd
+import torch
+from sklearn.model_selection import GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
-DESIGN_COLUMNS = ["pitch_um", "d_over_lambda", "metal_thickness_nm", "channel_radius_um"]
+GEOMETRY_COLUMNS = ["pitch_um", "d_over_lambda", "metal_thickness_nm", "channel_radius_um"]
 CONDITION_COLUMNS = ["analyte_ri"]
-FORWARD_INPUT_COLUMNS = DESIGN_COLUMNS + CONDITION_COLUMNS
-GEOMETRY_COLUMNS = DESIGN_COLUMNS
+FORWARD_INPUT_COLUMNS = GEOMETRY_COLUMNS + CONDITION_COLUMNS
 METRIC_COLUMNS = ["sensitivity_nm_per_riu", "fom_per_riu", "lambda_res_nm"]
 
+
 def read_table(path: Path) -> pd.DataFrame:
-    return pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
+    if path.suffix.lower() == ".parquet":
+        return pd.read_parquet(path)
+    return pd.read_csv(path)
+
+
+def geometry_group_labels(frame: pd.DataFrame) -> np.ndarray:
+    """Create stable group labels so RI sweeps of one geometry stay in one split."""
+    missing = [column for column in GEOMETRY_COLUMNS if column not in frame]
+    if missing:
+        raise ValueError(f"Missing geometry columns for grouped split: {missing}")
+    return pd.util.hash_pandas_object(frame[GEOMETRY_COLUMNS], index=False).to_numpy()
+
 
 class DesignDataModule:
-    def __init__(self, path: Path, batch_size: int = 64, test_size: float = 0.2, seed: int = 7):
-        self.path=path; self.batch_size=batch_size; self.test_size=test_size; self.seed=seed
-        self.forward_input_scaler=StandardScaler(); self.design_scaler=StandardScaler(); self.metric_scaler=StandardScaler()
-    def setup(self):
-        frame=read_table(self.path).dropna(subset=FORWARD_INPUT_COLUMNS+METRIC_COLUMNS).copy()
-        if len(frame)<5: raise ValueError("At least five complete samples are required for tandem training.")
-        fwd=frame[FORWARD_INPUT_COLUMNS].to_numpy(np.float32); design=frame[DESIGN_COLUMNS].to_numpy(np.float32); cond=frame[CONDITION_COLUMNS].to_numpy(np.float32); metrics=frame[METRIC_COLUMNS].to_numpy(np.float32); idx=np.arange(len(frame))
-        groups=frame["geometry_id"].to_numpy() if "geometry_id" in frame.columns else None
-        if groups is not None and np.unique(groups).size>=2:
-            train_groups,val_groups=train_test_split(np.unique(groups),test_size=self.test_size,random_state=self.seed); train_idx=idx[np.isin(groups,train_groups)]; val_idx=idx[np.isin(groups,val_groups)]
-        else:
-            train_idx,val_idx=train_test_split(idx,test_size=self.test_size,random_state=self.seed)
-        self.forward_input_scaler.fit(fwd[train_idx]); self.design_scaler.fit(design[train_idx]); self.metric_scaler.fit(metrics[train_idx])
-        def build(s):
-            return TensorDataset(torch.tensor(self.forward_input_scaler.transform(fwd[s]),dtype=torch.float32),torch.tensor(self.design_scaler.transform(design[s]),dtype=torch.float32),torch.tensor(cond[s],dtype=torch.float32),torch.tensor(self.metric_scaler.transform(metrics[s]),dtype=torch.float32))
-        self.train_dataset=build(np.asarray(train_idx)); self.val_dataset=build(np.asarray(val_idx))
-    def train_loader(self): return DataLoader(self.train_dataset,batch_size=self.batch_size,shuffle=True)
-    def val_loader(self): return DataLoader(self.val_dataset,batch_size=self.batch_size)
+    """Prepare leakage-resistant standardized tensors for tandem learning."""
+
+    def __init__(self, path: Path, batch_size: int = 64, test_size: float = 0.2, seed: int = 7) -> None:
+        self.path = path
+        self.batch_size = batch_size
+        self.test_size = test_size
+        self.seed = seed
+        self.geometry_scaler = StandardScaler()
+        self.condition_scaler = StandardScaler()
+        self.metric_scaler = StandardScaler()
+
+    def setup(self) -> None:
+        required = GEOMETRY_COLUMNS + CONDITION_COLUMNS + METRIC_COLUMNS
+        frame = read_table(self.path).dropna(subset=required).reset_index(drop=True)
+        if len(frame) < 4:
+            raise ValueError("At least four valid rows are required for train/validation splitting.")
+
+        geometry = frame[GEOMETRY_COLUMNS].to_numpy(dtype=np.float32)
+        conditions = frame[CONDITION_COLUMNS].to_numpy(dtype=np.float32)
+        metrics = frame[METRIC_COLUMNS].to_numpy(dtype=np.float32)
+        groups = geometry_group_labels(frame)
+        if np.unique(groups).size < 2:
+            raise ValueError("At least two unique base geometries are required for leakage-resistant validation.")
+
+        splitter = GroupShuffleSplit(n_splits=1, test_size=self.test_size, random_state=self.seed)
+        train_idx, val_idx = next(splitter.split(geometry, metrics, groups=groups))
+
+        self.geometry_scaler.fit(geometry[train_idx])
+        self.condition_scaler.fit(conditions[train_idx])
+        self.metric_scaler.fit(metrics[train_idx])
+
+        def build_dataset(indices: np.ndarray) -> TensorDataset:
+            return TensorDataset(
+                torch.tensor(self.geometry_scaler.transform(geometry[indices]), dtype=torch.float32),
+                torch.tensor(self.condition_scaler.transform(conditions[indices]), dtype=torch.float32),
+                torch.tensor(self.metric_scaler.transform(metrics[indices]), dtype=torch.float32),
+            )
+
+        self.train_dataset = build_dataset(train_idx)
+        self.val_dataset = build_dataset(val_idx)
+        self.train_indices = train_idx
+        self.val_indices = val_idx
+        self.groups = groups
+
+    def train_loader(self) -> DataLoader:
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
+
+    def val_loader(self) -> DataLoader:
+        return DataLoader(self.val_dataset, batch_size=self.batch_size)
