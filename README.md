@@ -1,97 +1,62 @@
 # ML-Driven Inverse Design and Edge Processing for PCF-SPR Sensors
 
-This repository implements an end-to-end research framework for photonic crystal fiber surface plasmon resonance (PCF-SPR) sensor design:
+Research framework for PCF-SPR simulation, inverse design, active learning, explainability, and edge spectral processing.
 
-- Pipeline A: COMSOL-driven simulation sweeps and spectral metric extraction.
-- Pipeline B: PyTorch tandem neural network for inverse design under fabrication constraints.
-- Pipeline C: lightweight 1D-CNN autoencoder for spectral denoising and real-time refractive-index prediction.
+## Correctness changes in v0.2
 
-The code is modular so it can run with real COMSOL models through `mph`, or with synthetic spectra for model and pipeline validation when COMSOL is unavailable.
+Sensitivity and FOM are computed only across analyte-RI sweeps at fixed geometry. The forward surrogate uses pitch, d/Λ, metal thickness, channel radius, and analyte RI. The inverse network produces geometry while conditioning on analyte RI. Train/validation splitting keeps RI points from the same synthetic geometry together.
 
-## Quick Start
+Active-learning uncertainty uses dropout that is present during training, and selected candidates can be sent directly to COMSOL. Fabrication bounds cover pitch, d/Λ, metal thickness, channel radius, and overlap.
 
+COMSOL expressions support `wavelength_scale_to_nm` and `loss_scale_to_db_per_cm` in YAML. Configure them if model expressions are not already in nm and dB/cm.
+
+## Install
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-pip install -e .
+pip install -e ".[io,onnx,edge,comsol,xai,dev]"
 ```
 
-Generate a small synthetic dataset:
-
+## Synthetic validation
 ```powershell
 python scripts/generate_synthetic_dataset.py --samples 500 --out data/processed/synthetic.parquet
 ```
+Synthetic data validates the software pipeline; it is not a substitute for FEM evidence.
 
-Train the forward and inverse tandem model:
-
+## Inverse design
 ```powershell
 python -m sprpcf.ml.train_tandem --data data/processed/synthetic.parquet --epochs 25 --out models/tandem.pt
 ```
+The ONNX inverse interface accepts both `target_metrics` and `analyte_ri`.
 
-Train the edge denoising model:
-
+## Edge models
 ```powershell
 python -m sprpcf.edge.train_denoiser --data data/processed/synthetic.parquet --epochs 20 --batch-size 64 --device auto --quantize
 ```
+Outputs are `edge_denoiser.keras`, `edge_ri_predictor.keras` and their quantized TFLite counterparts. Quantized evaluation reports post-INT8 accuracy, P50/P95 denoiser latency, and model sizes.
 
-This writes `models/edge_denoiser_quantized.tflite` and `models/edge_ri_predictor_quantized.tflite` when `--quantize` is enabled.
-
-Simulate a real-time noisy sensor stream:
-
+Dataset replay (not a hardware driver):
 ```powershell
-python -m sprpcf.edge.realtime_feed --data data/processed/synthetic.parquet --model models/denoiser.keras --ri-model models/ri_predictor.keras
+python -m sprpcf.edge.realtime_feed --data data/processed/synthetic.parquet --model models/edge_denoiser.keras --ri-model models/edge_ri_predictor.keras
 ```
 
-Run active-learning candidate acquisition:
-
+Full INT8 manual export requires calibration data:
 ```powershell
-python -m sprpcf.ml.active_learning --help
+python -m sprpcf.edge.export_tflite --model models/edge_denoiser.keras --out models/denoiser.tflite --quantization int8 --calibration-data data/processed/synthetic.parquet
 ```
 
-Generate feature attribution matrices:
-
+## COMSOL
 ```powershell
-python -m sprpcf.ml.explainability --checkpoint models/tandem.pt --data data/processed/synthetic.parquet --out outputs/feature_attribution.csv --heatmap outputs/feature_attribution.png
+python -m sprpcf.simulation.comsol_sweep --model path\to\pcf_spr.mph --config sweep.example.yaml --out data/raw/comsol_sweep.parquet
 ```
+Sensitivity is `Delta(lambda_res) / Delta(n_analyte)` at identical geometry. FOM is sensitivity divided by FWHM.
 
-The explainability engine supports built-in Integrated Gradients and optional SHAP if `shap` is installed.
-
-Run a COMSOL sweep when COMSOL Multiphysics and a compatible `.mph` model are available:
-
-```powershell
-python -m sprpcf.simulation.comsol_sweep --model path\to\pcf_spr.mph --config sweep.yaml --out data/raw/comsol_sweep.parquet
-```
-
-## Physical Model Notes
-
-The SPR resonance wavelength is estimated from the confinement-loss peak. Sensitivity is computed as:
-
-```text
-S_lambda = Delta lambda_res / Delta n_analyte  [nm/RIU]
-```
-
-The figure of merit is:
-
-```text
-FOM = S_lambda / FWHM
-```
-
-The inverse-design loss constrains geometry to fabrication-safe regions:
-
+## Fabrication bounds
 - `0.20 <= d_over_lambda <= 0.90`
 - `0.8 um <= pitch_um <= 4.0 um`
 - `15 nm <= metal_thickness_nm <= 80 nm`
-- adjacent air holes do not overlap in the simplified lattice constraint `d < pitch`.
+- `0.10 um <= channel_radius_um <= 2.0 um`
+- air-hole diameter must not exceed pitch.
 
-These bounds can be adjusted in `src/sprpcf/ml/losses.py` and the sweep configuration.
-
-## Suggested Project Layout
-
-```text
-data/raw/          Raw COMSOL outputs
-data/processed/    Training-ready parquet/csv datasets
-models/            Trained PyTorch and TensorFlow artifacts
-outputs/           Plots, reports, and exported edge models
-src/sprpcf/         Python package
-```
+## Reproducibility
+Training exposes deterministic seeds and checkpoints store schema/scaler metadata. GitHub Actions runs syntax, lint, packaging, and core tests on Python 3.10-3.12. For publishable claims, archive the exact COMSOL model, solver/version settings, raw FEM data, checkpoint, environment lock, and benchmark hardware with the manuscript artifacts.

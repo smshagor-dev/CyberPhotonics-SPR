@@ -1,122 +1,35 @@
 from __future__ import annotations
-
-import argparse
-import logging
+import argparse,logging
 from pathlib import Path
-from typing import Any
-
-import numpy as np
-import pandas as pd
-import yaml
-
-from sprpcf.simulation.metrics import extract_metrics, finite_difference_sensitivity
+import numpy as np,pandas as pd,yaml
+from sprpcf.simulation.metrics import assign_grouped_sensitivity,extract_metrics
 from sprpcf.simulation.schema import Geometry
-
-LOGGER = logging.getLogger(__name__)
-
-
-def _load_mph() -> Any:
-    try:
-        import mph
-    except ImportError as exc:
-        raise RuntimeError("The 'mph' package is required for COMSOL automation.") from exc
+LOGGER=logging.getLogger(__name__)
+def _load_mph():
+    try: import mph
+    except ImportError as exc: raise RuntimeError("The 'mph' package is required for COMSOL automation.") from exc
     return mph
-
-
-def _grid(values: dict[str, list[float]]) -> list[Geometry]:
-    geometries: list[Geometry] = []
-    for d_over_lambda in values["d_over_lambda"]:
-        for pitch_um in values["pitch_um"]:
-            for metal_thickness_nm in values["metal_thickness_nm"]:
-                for analyte_ri in values["analyte_ri"]:
-                    for channel_radius_um in values.get("channel_radius_um", [0.6]):
-                        geometries.append(
-                            Geometry(
-                                d_over_lambda=float(d_over_lambda),
-                                pitch_um=float(pitch_um),
-                                metal_thickness_nm=float(metal_thickness_nm),
-                                analyte_ri=float(analyte_ri),
-                                channel_radius_um=float(channel_radius_um),
-                            )
-                        )
-    return geometries
-
-
-def run_comsol_sweep(model_path: Path, config_path: Path) -> pd.DataFrame:
-    """Run a COMSOL parametric sweep and return a structured dataframe.
-
-    The COMSOL model is expected to expose parameters matching the field names in
-    `Geometry`, and numerical export expressions configured in the YAML file.
-    """
-    mph = _load_mph()
-    config = yaml.safe_load(config_path.read_text())
-    wavelength_expression = config.get("wavelength_expression", "lambda")
-    loss_expression = config.get("loss_expression", "loss")
-    study = config.get("study", "std1")
-    geometries = _grid(config["sweep"])
-
-    client = mph.start()
-    model = client.load(str(model_path))
-    rows: list[dict[str, float | str]] = []
-
-    for sample_id, geometry in enumerate(geometries):
-        LOGGER.info("Running sample %s: %s", sample_id, geometry)
+def _grid(v): return [Geometry(float(d),float(p),float(m),float(n),float(c)) for d in v["d_over_lambda"] for p in v["pitch_um"] for m in v["metal_thickness_nm"] for n in v["analyte_ri"] for c in v.get("channel_radius_um",[0.6])]
+def _config(path):
+    cfg=yaml.safe_load(path.read_text()) or {}; cfg.setdefault("study","std1"); cfg.setdefault("wavelength_expression","lambda"); cfg.setdefault("loss_expression","loss"); cfg.setdefault("wavelength_scale_to_nm",1.0); cfg.setdefault("loss_scale_to_db_per_cm",1.0); return cfg
+def run_comsol_geometries(model_path,config_path,geometries):
+    cfg=_config(config_path); client=_load_mph().start(); model=client.load(str(model_path)); rows=[]
+    for i,g in enumerate(geometries):
         try:
-            model.parameter("d_over_lambda", geometry.d_over_lambda)
-            model.parameter("pitch_um", f"{geometry.pitch_um}[um]")
-            model.parameter("metal_thickness_nm", f"{geometry.metal_thickness_nm}[nm]")
-            model.parameter("analyte_ri", geometry.analyte_ri)
-            model.parameter("channel_radius_um", f"{geometry.channel_radius_um}[um]")
-            model.solve(study)
-            wavelength_nm = np.asarray(model.evaluate(wavelength_expression), dtype=float).ravel()
-            loss = np.asarray(model.evaluate(loss_expression), dtype=float).ravel()
-            metrics = extract_metrics(wavelength_nm, loss)
-            rows.append(
-                {
-                    "sample_id": sample_id,
-                    "status": "ok",
-                    **geometry.__dict__,
-                    **metrics.__dict__,
-                    "wavelength_nm": ",".join(f"{value:.6f}" for value in wavelength_nm),
-                    "loss_db_per_cm": ",".join(f"{value:.6f}" for value in loss),
-                }
-            )
-        except Exception as exc:
-            LOGGER.exception("COMSOL sample %s failed.", sample_id)
-            rows.append({"sample_id": sample_id, "status": f"failed: {exc}", **geometry.__dict__})
-
-    frame = pd.DataFrame(rows)
-    ok = frame["status"].eq("ok") if "status" in frame else pd.Series(dtype=bool)
-    if ok.any():
-        frame.loc[ok, "sensitivity_nm_per_riu"] = finite_difference_sensitivity(
-            frame.loc[ok, "lambda_res_nm"].to_numpy(dtype=float),
-            frame.loc[ok, "analyte_ri"].to_numpy(dtype=float),
-        )
-        frame.loc[ok, "fom_per_riu"] = frame.loc[ok, "sensitivity_nm_per_riu"] / frame.loc[ok, "fwhm_nm"]
+            model.parameter("d_over_lambda",g.d_over_lambda); model.parameter("pitch_um",f"{g.pitch_um}[um]"); model.parameter("metal_thickness_nm",f"{g.metal_thickness_nm}[nm]"); model.parameter("analyte_ri",g.analyte_ri); model.parameter("channel_radius_um",f"{g.channel_radius_um}[um]"); model.solve(cfg["study"]); wavelength=np.asarray(model.evaluate(cfg["wavelength_expression"]),dtype=float).ravel()*float(cfg["wavelength_scale_to_nm"]); loss=np.asarray(model.evaluate(cfg["loss_expression"]),dtype=float).ravel()*float(cfg["loss_scale_to_db_per_cm"]); met=extract_metrics(wavelength,loss); rows.append({"sample_id":i,"status":"ok",**g.__dict__,**met.__dict__,"wavelength_nm":",".join(f"{x:.6f}" for x in wavelength),"loss_db_per_cm":",".join(f"{x:.6f}" for x in loss),"source":"comsol"})
+        except Exception as exc: LOGGER.exception("COMSOL sample %s failed",i); rows.append({"sample_id":i,"status":f"failed: {exc}",**g.__dict__})
+    frame=pd.DataFrame(rows)
+    if not frame.empty:
+        ok=frame["status"].eq("ok")
+        if ok.any():
+            corrected=assign_grouped_sensitivity(frame.loc[ok].copy()); frame.loc[corrected.index,corrected.columns]=corrected
     return frame
-
-
-def write_dataset(frame: pd.DataFrame, output: Path) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if output.suffix.lower() == ".parquet":
-        frame.to_parquet(output, index=False)
-    else:
-        frame.to_csv(output, index=False)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run COMSOL PCF-SPR parametric sweeps.")
-    parser.add_argument("--model", type=Path, required=True)
-    parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--log-level", default="INFO")
-    args = parser.parse_args()
-
-    logging.basicConfig(level=args.log_level)
-    frame = run_comsol_sweep(args.model, args.config)
-    write_dataset(frame, args.out)
-    LOGGER.info("Wrote %s rows to %s", len(frame), args.out)
-
-
-if __name__ == "__main__":
-    main()
+def run_comsol_sweep(model_path,config_path): return run_comsol_geometries(model_path,config_path,_grid(_config(config_path)["sweep"]))
+def run_comsol_candidates(model_path,config_path,candidates):
+    cols=["d_over_lambda","pitch_um","metal_thickness_nm","analyte_ri","channel_radius_um"]; missing=[c for c in cols if c not in candidates]
+    if missing: raise ValueError(f"Missing candidate columns: {missing}")
+    return run_comsol_geometries(model_path,config_path,[Geometry(*(float(row[c]) for c in cols)) for _,row in candidates.iterrows()])
+def write_dataset(frame,output): output.parent.mkdir(parents=True,exist_ok=True); frame.to_parquet(output,index=False) if output.suffix.lower()==".parquet" else frame.to_csv(output,index=False)
+def main():
+    p=argparse.ArgumentParser(); p.add_argument("--model",type=Path,required=True); p.add_argument("--config",type=Path,required=True); p.add_argument("--out",type=Path,required=True); a=p.parse_args(); write_dataset(run_comsol_sweep(a.model,a.config),a.out)
+if __name__=="__main__":main()

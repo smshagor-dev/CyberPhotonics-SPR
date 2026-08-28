@@ -1,14 +1,6 @@
-from __future__ import annotations
-
 import numpy as np
-
-from sprpcf.ml.dataset import GEOMETRY_COLUMNS
+from sprpcf.ml.dataset import FORWARD_INPUT_COLUMNS
 from sprpcf.ml.explainability import attribution_matrix
 from sprpcf.ml.tandem import ForwardNetwork
-
-
-def test_integrated_gradients_outputs_feature_matrix() -> None:
-    geometry = np.array([[2.0, 0.5, 45.0], [2.2, 0.55, 50.0]], dtype=np.float32)
-    matrix = attribution_matrix(ForwardNetwork(), geometry, method="integrated-gradients", steps=4)
-    assert list(matrix.columns) == GEOMETRY_COLUMNS
-    assert matrix.shape == geometry.shape
+def test_integrated_gradients_uses_forward_schema():
+    x=np.zeros((2,len(FORWARD_INPUT_COLUMNS)),dtype=np.float32);m=attribution_matrix(ForwardNetwork(input_dim=len(FORWARD_INPUT_COLUMNS)),x,steps=4);assert list(m.columns)==FORWARD_INPUT_COLUMNS and m.shape==x.shape
