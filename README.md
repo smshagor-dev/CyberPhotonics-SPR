@@ -1,12 +1,12 @@
 # CyberPhotonics-SPR
 
-Research framework for photonic crystal fiber surface plasmon resonance (PCF-SPR) simulation, conditioned ML inverse design, active learning, and edge spectral inference.
+Research framework for photonic crystal fiber surface plasmon resonance (PCF-SPR) simulation, conditioned ML inverse design, active learning, edge spectral inference, scientific validation, COMSOL closed-loop verification, and calibrated multi-objective design.
 
 The framework has three linked pipelines:
 
-- **A — Physics/data:** COMSOL sweeps through `mph`, spectral metric extraction, explicit unit validation, and synthetic fixed-geometry RI sweeps when COMSOL is unavailable.
-- **B — ML inverse design:** PyTorch forward surrogate conditioned on sensor geometry **and analyte RI**, plus a tandem inverse generator with fabrication penalties and bounded ONNX output.
-- **C — Edge inference:** 1D-CNN denoising and RI/resonance prediction with validated full-INT8 TFLite export and latency/accuracy reporting.
+- **A — Physics/data:** COMSOL sweeps through `mph`, spectral metric extraction, explicit unit validation, synthetic fixed-geometry RI sweeps when COMSOL is unavailable, and closed-loop dataset augmentation from accepted physics runs.
+- **B — ML inverse design:** PyTorch forward surrogate conditioned on sensor geometry **and analyte RI**, a tandem inverse generator with fabrication penalties, bounded ONNX output, optional forward ensembles, conformal uncertainty, OOD detection, and Pareto candidate selection.
+- **C — Edge inference:** 1D-CNN denoising and RI/resonance prediction with validated full-INT8 TFLite/LiteRT export and latency/accuracy reporting.
 
 Synthetic data is for pipeline validation only. Physical research conclusions should be based on verified COMSOL/experimental data.
 
@@ -86,7 +86,7 @@ python -m sprpcf.ml.explainability `
   --heatmap outputs/feature_attribution.png
 ```
 
-Integrated Gradients and optional SHAP now operate in the same standardized five-feature input space used to train the forward model. Analyte RI is included as a condition feature instead of being silently omitted.
+Integrated Gradients and optional SHAP operate in the same standardized five-feature input space used to train the forward model. Analyte RI is included as a condition feature instead of being silently omitted.
 
 ## 5. Active learning
 
@@ -221,7 +221,67 @@ python scripts/run_ablation_study.py `
   --device cpu
 ```
 
-The validation pack exports CSV/JSON evidence, provenance, a Markdown report, and 300-dpi publication plots. See `docs/SCIENTIFIC_VALIDATION.md` for the full evidence protocol. Synthetic outputs remain software/pipeline validation only; manuscript physical claims must use verified COMSOL or experimental data.
+The validation pack exports CSV/JSON evidence, provenance, a Markdown report, and 300-dpi publication plots. See `docs/SCIENTIFIC_VALIDATION.md` for the full evidence protocol.
+
+## 10. Run the physics-validated closed loop
+
+```powershell
+python scripts/run_comsol_closed_loop.py `
+  --checkpoint models/tandem.pt `
+  --targets data/processed/design_targets.csv `
+  --base-data data/processed/training.parquet `
+  --backend comsol `
+  --comsol-model path\to\pcf_spr.mph `
+  --comsol-config sweep.example.yaml `
+  --out outputs/closed_loop/iteration_001 `
+  --retrain
+```
+
+Each generated geometry is evaluated over an odd target-centered fixed-geometry RI sweep. Sensitivity/FOM/resonance/linearity gates decide whether physics rows are accepted into the augmented training dataset. The iteration manifest hashes the source dataset, checkpoint, COMSOL model/config, and generated artifacts.
+
+## 11. Calibrated multi-objective AI design
+
+Upgrade an existing tandem checkpoint with independently initialized forward-surrogate ensemble members:
+
+```powershell
+python -m sprpcf.ml.ensemble `
+  --checkpoint models/tandem.pt `
+  --data data/processed/training.parquet `
+  --out models/tandem_ensemble.pt `
+  --members 5 `
+  --epochs 50 `
+  --device auto
+```
+
+Generate a latent candidate pool for each target and rank it by separate sensitivity, FOM, resonance, manufacturability and OOD objectives:
+
+```powershell
+python scripts/run_multiobjective_design.py `
+  --checkpoint models/tandem_ensemble.pt `
+  --targets data/processed/design_targets.csv `
+  --reference-data data/processed/training.parquet `
+  --out outputs/multiobjective `
+  --candidates-per-target 128 `
+  --confidence 0.95
+```
+
+Or run the Pareto-selected designs directly through the Phase-2 physics loop:
+
+```powershell
+python scripts/run_advanced_closed_loop.py `
+  --checkpoint models/tandem_ensemble.pt `
+  --targets data/processed/design_targets.csv `
+  --base-data data/processed/training.parquet `
+  --backend comsol `
+  --comsol-model path\to\pcf_spr.mph `
+  --comsol-config sweep.example.yaml `
+  --out outputs/advanced_closed_loop/iteration_001 `
+  --candidates-per-target 128 `
+  --confidence 0.95 `
+  --retrain
+```
+
+The advanced selector combines held-out conformal residual calibration, optional deep-ensemble disagreement, Mahalanobis OOD scoring, raw-vs-projected fabrication distance, and Pareto non-dominated ranking. Its confidence score is a ranking aid—not a probability of physical success—and never bypasses COMSOL acceptance gates. See `docs/ADVANCED_AI_DESIGN.md`.
 
 ## Metric definitions
 
@@ -241,12 +301,13 @@ FWHM crossings are linearly interpolated rather than rounded to wavelength-grid 
 
 ## Reproducibility and validation
 
-- Synthetic generation, PyTorch training, TensorFlow training, and grouped splits accept deterministic seeds.
+- Synthetic generation, PyTorch training, TensorFlow training, ensemble training, candidate generation, and grouped splits accept deterministic seeds.
 - Dataset writes produce `.meta.json` provenance sidecars with SHA-256 hashes.
 - Validation splits are grouped by base geometry to prevent RI-sweep leakage.
-- Scientific validation reports fitted fixed-geometry sensitivity/FOM, bootstrap CIs, model baselines, target satisfaction, raw/post-projection constraint rates, MC-dropout uncertainty, and artifact hashes.
-- CI runs fatal Ruff checks, bytecode compilation, and the test suite on every push/PR.
-- Tests cover grouped sensitivity, duplicate-RI rejection, COMSOL unit validation, fabrication bounds, conditioned XAI, active-learning handoff, ONNX interface, group leakage, INT8 deployment, and the scientific validation framework.
+- Scientific validation reports fitted fixed-geometry sensitivity/FOM, bootstrap CIs, model baselines, target satisfaction, raw/post-projection constraint rates, uncertainty, and artifact hashes.
+- Advanced design records Pareto rank, calibrated residual intervals, ensemble disagreement, OOD score, fabrication projection distance, and confidence ranking for every candidate.
+- CI runs fatal Ruff checks, bytecode compilation, and the test suite on every push/PR; Python warnings are treated as errors.
+- Tests cover grouped sensitivity, duplicate-RI rejection, COMSOL unit validation, fabrication bounds, conditioned XAI, active-learning handoff, ONNX interface, group leakage, INT8 deployment, scientific validation, COMSOL closed-loop validation, and multi-objective design.
 
 Run locally:
 
@@ -261,8 +322,8 @@ pytest -q
 data/raw/          Raw COMSOL/experimental data (not committed)
 data/processed/    Training-ready datasets (not committed)
 models/            Trained PyTorch/Keras/ONNX/TFLite artifacts (not committed)
-outputs/           Metrics, plots, reports, and candidate files
+outputs/           Metrics, plots, reports, candidates, and closed-loop artifacts
 src/sprpcf/        Python package
-scripts/           Dataset utilities and validation runners
+scripts/           Dataset, validation, optimization, and closed-loop runners
 tests/             Scientific, ML, deployment, and integration tests
 ```
