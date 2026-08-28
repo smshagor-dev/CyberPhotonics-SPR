@@ -21,7 +21,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-edge = ["tensorflow>=2.14"]
+edge = [
+  "tensorflow-cpu>=2.14; platform_system == 'Linux' and platform_machine == 'x86_64'",
+  "tensorflow>=2.14; platform_system != 'Linux' or platform_machine != 'x86_64'",
+]
 onnx = ["onnx>=1.15", "onnxscript>=0.1.0", "onnxruntime>=1.16"]
 comsol = ["mph>=1.2"]
 xai = ["shap>=0.45"]
