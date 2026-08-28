@@ -52,19 +52,26 @@ jobs:
           test -f /tmp/reviewer-smoke/REVIEWER_GUIDE.md
           test -f /tmp/reviewer-smoke/CLAIMS_MATRIX.md
           test -f /tmp/reviewer-smoke/checksums.sha256
-      - name: Publication demo smoke test
+      - name: Build polished publication demo
         if: matrix.python-version == '3.11'
         env:
           MPLBACKEND: Agg
         run: |
           python scripts/run_publication_demo.py \
             --out /tmp/publication-demo \
-            --samples 6 \
-            --wavelengths 64 \
-            --bootstrap-resamples 100 \
+            --samples 24 \
+            --wavelengths 128 \
+            --bootstrap-resamples 500 \
             --seed 7
           test -f /tmp/publication-demo/DEMO_INDEX.html
           test -f /tmp/publication-demo/reviewer_package/manifest.json
+      - name: Upload publication demo artifact
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: publication-demo-${{ github.sha }}
+          if-no-files-found: error
+          path: /tmp/publication-demo/
       - name: Build wheel and source distribution
         if: matrix.python-version == '3.11'
         run: python -m build
