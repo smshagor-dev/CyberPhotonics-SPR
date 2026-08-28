@@ -9,21 +9,56 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  core:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install project and test extras
-        run: python -m pip install --upgrade pip && pip install -e ".[dev,edge,onnx]"
+      - name: Install CPU PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu
+      - name: Install core test dependencies
+        run: pip install -e ".[dev,onnx]"
       - name: Ruff fatal checks
         run: ruff check . --select E9,F63,F7,F82
       - name: Compile
         run: python -m compileall -q src main.py scripts
-      - name: Tests
-        run: pytest -q
+      - name: Verify critical imports
+        run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.simulation.comsol_sweep"
+      - name: Core tests
+        run: pytest -q --ignore=tests/test_edge_deployment.py --ignore=tests/test_full_pipeline.py
+
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu
+      - name: Install edge test dependencies
+        run: pip install -e ".[dev,edge,onnx]"
+      - name: Edge and end-to-end tests
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+          TF_CPP_MIN_LOG_LEVEL: "2"
+        run: pytest -q tests/test_edge_deployment.py tests/test_full_pipeline.py
