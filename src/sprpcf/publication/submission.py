@@ -79,7 +79,12 @@ def _write_markdown_table(
 
 
 def _metric_unit(metric_path: str) -> str:
+    """Infer display units without letting a variable name override statistic semantics."""
     name = metric_path.lower()
+    if "r2" in name or "rate" in name or "confidence" in name or "coverage" in name:
+        return "dimensionless"
+    if "d_over_lambda" in name:
+        return "dimensionless"
     if "sensitivity" in name:
         return "nm/RIU"
     if "fom" in name:
@@ -92,8 +97,6 @@ def _metric_unit(metric_path: str) -> str:
         return "frames/s"
     if "bytes" in name or "memory" in name or "rss" in name:
         return "bytes"
-    if "r2" in name or "rate" in name or "confidence" in name or "coverage" in name:
-        return "dimensionless"
     if any(token in name for token in ("rows", "count", "sweeps", "samples")):
         return "count"
     return "reported unit"
@@ -387,9 +390,7 @@ def build_submission_package(
     artifacts = reviewer_manifest.get("artifacts", [])
     if not isinstance(artifacts, list):
         raise ValueError("Reviewer manifest artifacts must be a list.")
-    evidence_classes = sorted(
-        item for item in reviewer_manifest.get("evidence_classes", []) if isinstance(item, str)
-    )
+    evidence_classes = sorted(item for item in reviewer_manifest.get("evidence_classes", []) if isinstance(item, str))
     claim_gaps = [
         str(row.get("claim"))
         for row in claims
@@ -421,25 +422,13 @@ def build_submission_package(
     validation_class = role_classes.get("validation", "software_only")
     metric_rows: list[dict[str, str]] = []
     if validation_path is not None and (validation_path / "summary.json").is_file():
-        metric_rows = _flatten_validation_metrics(
-            _read_json_object(validation_path / "summary.json"),
-            validation_class,
-        )
+        metric_rows = _flatten_validation_metrics(_read_json_object(validation_path / "summary.json"), validation_class)
 
-    _write_csv(
-        out / "TABLE_S1_VALIDATION_METRICS.csv",
-        ("metric", "value", "unit", "evidence_class"),
-        metric_rows,
-    )
+    _write_csv(out / "TABLE_S1_VALIDATION_METRICS.csv", ("metric", "value", "unit", "evidence_class"), metric_rows)
     _write_markdown_table(
         out / "TABLE_S1_VALIDATION_METRICS.md",
         "Table S1 — Validation Metrics",
-        (
-            ("metric", "Metric"),
-            ("value", "Value"),
-            ("unit", "Unit"),
-            ("evidence_class", "Evidence class"),
-        ),
+        (("metric", "Metric"), ("value", "Value"), ("unit", "Unit"), ("evidence_class", "Evidence class")),
         metric_rows,
         note="Values are extracted verbatim from supplied scalar validation-summary fields; the evidence class controls interpretation.",
     )
@@ -462,12 +451,7 @@ def build_submission_package(
     _write_markdown_table(
         out / "TABLE_S2_CLAIMS_TO_EVIDENCE.md",
         "Table S2 — Claims to Evidence",
-        (
-            ("claim", "Claim"),
-            ("status", "Status"),
-            ("evidence_classes", "Evidence class(es)"),
-            ("interpretation", "Interpretation"),
-        ),
+        (("claim", "Claim"), ("status", "Status"), ("evidence_classes", "Evidence class(es)"), ("interpretation", "Interpretation")),
         claim_rows,
         note="`not supplied` means the package does not contain the evidence class required for that claim family.",
     )
@@ -506,14 +490,7 @@ def build_submission_package(
         figure_rows,
     )
 
-    _write_readme(
-        out / "README_FIRST.md",
-        title=title,
-        version=version,
-        journal=journal,
-        evidence_classes=evidence_classes,
-        claim_gaps=claim_gaps,
-    )
+    _write_readme(out / "README_FIRST.md", title=title, version=version, journal=journal, evidence_classes=evidence_classes, claim_gaps=claim_gaps)
     _write_supplementary_information(
         out / "SUPPLEMENTARY_INFORMATION.md",
         title=title,
@@ -557,21 +534,11 @@ def build_submission_package(
             "into COMSOL, experimental-sensor, fabricated-device, or target-device evidence."
         ),
     }
-    (out / "submission_manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    (out / "submission_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     checksum_path = out / "submission_checksums.sha256"
-    checksum_targets = sorted(
-        candidate
-        for candidate in out.rglob("*")
-        if candidate.is_file() and candidate != checksum_path
-    )
-    checksum_lines = [
-        f"{sha256_file(candidate)}  {candidate.relative_to(out).as_posix()}"
-        for candidate in checksum_targets
-    ]
+    checksum_targets = sorted(candidate for candidate in out.rglob("*") if candidate.is_file() and candidate != checksum_path)
+    checksum_lines = [f"{sha256_file(candidate)}  {candidate.relative_to(out).as_posix()}" for candidate in checksum_targets]
     checksum_path.write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
     return manifest
 
