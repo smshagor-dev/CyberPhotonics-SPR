@@ -59,6 +59,6 @@ jobs:
         run: pip install -e ".[dev,edge,onnx]"
       - name: Edge and end-to-end tests (warnings are errors)
         env:
-          CUDA_VISIBLE_DEVICES: ""
-          TF_CPP_MIN_LOG_LEVEL: "2"
+          CUDA_VISIBLE_DEVICES: "-1"
+          TF_CPP_MIN_LOG_LEVEL: "3"
         run: pytest -q -W error tests/test_edge_deployment.py tests/test_full_pipeline.py
