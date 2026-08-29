@@ -20,7 +20,9 @@ REQUIRED_RELEASE_FILES = (
     ".github/release.yml",
     "RELEASE_CANDIDATE.md",
     "configs/comsol_sweep.example.yaml",
+    "configs/real_validation_campaign.example.yaml",
     "docs/EVIDENCE_QUALIFICATION.md",
+    "docs/REAL_VALIDATION_CAMPAIGN.md",
     "docs/REPRODUCIBILITY.md",
     "docs/PUBLICATION_REVIEWER_PACKAGE.md",
     "docs/SUBMISSION_PACKAGE.md",
@@ -31,6 +33,7 @@ REQUIRED_RELEASE_FILES = (
     "scripts/register_evidence.py",
     "scripts/run_publication_demo.py",
     "scripts/smoke_test_wheel.py",
+    "scripts/validation_campaign.py",
     "pyproject.toml",
 )
 RUNTIME_PREFIXES = ("data/raw/", "data/processed/", "models/", "outputs/")
