@@ -18,6 +18,7 @@ CRITICAL_IMPORTS = (
     "sprpcf.evidence.qualification",
     "sprpcf.publication.evidence",
     "sprpcf.publication.submission",
+    "sprpcf.publication.finalization",
     "sprpcf.utils.readiness",
 )
 
