@@ -1,0 +1,33 @@
+schema_version: 1
+experiment_id: real-pcf-spr-sensor-validation
+
+# Each path points to a calibrated spectrum table with two columns:
+# wavelength_nm, loss_db_per_cm
+# raw_path identifies the measured source artifact that produced the calibrated table.
+# Register every raw_path with scripts/register_evidence.py experimental before using
+# the derived statistics as experimental claim evidence.
+spectra:
+  - analyte_ri: 1.33
+    replicate: "1"
+    raw_path: ../outputs/experiment/raw/ri_1.33_rep1.jsonl
+    path: ../outputs/experiment/processed/ri_1.33_rep1.csv
+  - analyte_ri: 1.33
+    replicate: "2"
+    raw_path: ../outputs/experiment/raw/ri_1.33_rep2.jsonl
+    path: ../outputs/experiment/processed/ri_1.33_rep2.csv
+  - analyte_ri: 1.35
+    replicate: "1"
+    raw_path: ../outputs/experiment/raw/ri_1.35_rep1.jsonl
+    path: ../outputs/experiment/processed/ri_1.35_rep1.csv
+  - analyte_ri: 1.35
+    replicate: "2"
+    raw_path: ../outputs/experiment/raw/ri_1.35_rep2.jsonl
+    path: ../outputs/experiment/processed/ri_1.35_rep2.csv
+  - analyte_ri: 1.37
+    replicate: "1"
+    raw_path: ../outputs/experiment/raw/ri_1.37_rep1.jsonl
+    path: ../outputs/experiment/processed/ri_1.37_rep1.csv
+  - analyte_ri: 1.37
+    replicate: "2"
+    raw_path: ../outputs/experiment/raw/ri_1.37_rep2.jsonl
+    path: ../outputs/experiment/processed/ri_1.37_rep2.csv

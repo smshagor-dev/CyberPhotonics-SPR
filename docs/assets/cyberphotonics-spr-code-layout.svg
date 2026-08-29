@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="930" viewBox="0 0 1500 930" role="img" aria-labelledby="title desc">
+  <title id="title">CyberPhotonics-SPR code architecture</title>
+  <desc id="desc">Code-wise layout of the CyberPhotonics-SPR research framework from simulation and inverse design through validation, evidence, publication, edge deployment, dashboard, scripts, configuration, tests, and CI.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071827"/>
+      <stop offset="1" stop-color="#102c45"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#35c6f4"/>
+      <stop offset="1" stop-color="#65f2c3"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.28"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#6ee7d2"/>
+    </marker>
+    <style>
+      .title{font:700 38px Inter,Segoe UI,Arial,sans-serif;fill:#f4fbff}
+      .subtitle{font:500 18px Inter,Segoe UI,Arial,sans-serif;fill:#9fc7da}
+      .box-title{font:700 19px Inter,Segoe UI,Arial,sans-serif;fill:#f7fcff}
+      .box-sub{font:500 14px Inter,Segoe UI,Arial,sans-serif;fill:#a8c9d9}
+      .small{font:600 13px Inter,Segoe UI,Arial,sans-serif;fill:#d6edf6}
+      .footer{font:500 13px Inter,Segoe UI,Arial,sans-serif;fill:#86afc3}
+      .core{fill:#123a57;stroke:#2f89b6;stroke-width:2}
+      .evidence{fill:#163e40;stroke:#49c6b1;stroke-width:2}
+      .support{fill:#232d46;stroke:#6677b4;stroke-width:2}
+      .release{fill:#3c2f27;stroke:#d3a561;stroke-width:2}
+      .line{stroke:#6ee7d2;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .thin{stroke:#4b7890;stroke-width:2;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+
+  <rect width="1500" height="930" rx="28" fill="url(#bg)"/>
+  <rect x="58" y="42" width="1384" height="846" rx="30" fill="#0a2234" stroke="#1b4a65" stroke-width="2" filter="url(#shadow)"/>
+
+  <text x="100" y="105" class="title">CyberPhotonics-SPR — Code &amp; Research Architecture</text>
+  <text x="100" y="138" class="subtitle">Traceable path from photonic physics → AI inverse design → validation → qualified evidence → publication → edge deployment</text>
+  <rect x="100" y="160" width="1300" height="5" rx="2.5" fill="url(#accent)"/>
+
+  <!-- Main pipeline -->
+  <rect x="110" y="220" width="220" height="130" rx="20" class="core"/>
+  <text x="135" y="255" class="box-title">simulation/</text>
+  <text x="135" y="282" class="box-sub">PCF-SPR schema &amp; metrics</text>
+  <text x="135" y="305" class="box-sub">dispersion • synthetic</text>
+  <text x="135" y="328" class="box-sub">COMSOL sweep interface</text>
+
+  <rect x="390" y="220" width="220" height="130" rx="20" class="core"/>
+  <text x="415" y="255" class="box-title">ml/</text>
+  <text x="415" y="282" class="box-sub">tandem inverse design</text>
+  <text x="415" y="305" class="box-sub">multi-objective • OOD</text>
+  <text x="415" y="328" class="box-sub">ensemble • ONNX • XAI</text>
+
+  <rect x="670" y="220" width="220" height="130" rx="20" class="core"/>
+  <text x="695" y="255" class="box-title">validation/</text>
+  <text x="695" y="282" class="box-sub">scientific metrics</text>
+  <text x="695" y="305" class="box-sub">closed loop • campaign</text>
+  <text x="695" y="328" class="box-sub">experimental analysis</text>
+
+  <rect x="950" y="220" width="220" height="130" rx="20" class="evidence"/>
+  <text x="975" y="255" class="box-title">evidence/</text>
+  <text x="975" y="282" class="box-sub">qualification contracts</text>
+  <text x="975" y="305" class="box-sub">SHA-256 provenance</text>
+  <text x="975" y="328" class="box-sub">physical-class promotion</text>
+
+  <rect x="1230" y="220" width="160" height="130" rx="20" class="evidence"/>
+  <text x="1252" y="255" class="box-title">publication/</text>
+  <text x="1252" y="282" class="box-sub">reviewer</text>
+  <text x="1252" y="305" class="box-sub">submission</text>
+  <text x="1252" y="328" class="box-sub">results/finalize</text>
+
+  <path d="M330 285 H390" class="line"/>
+  <path d="M610 285 H670" class="line"/>
+  <path d="M890 285 H950" class="line"/>
+  <path d="M1170 285 H1230" class="line"/>
+
+  <!-- Deployment and interaction -->
+  <rect x="250" y="430" width="260" height="135" rx="20" class="core"/>
+  <text x="278" y="466" class="box-title">edge/</text>
+  <text x="278" y="493" class="box-sub">INT8 / LiteRT deployment</text>
+  <text x="278" y="516" class="box-sub">spectrum preprocessing</text>
+  <text x="278" y="539" class="box-sub">live hardware pipeline</text>
+
+  <rect x="620" y="430" width="260" height="135" rx="20" class="support"/>
+  <text x="648" y="466" class="box-title">dashboard/</text>
+  <text x="648" y="493" class="box-sub">design studio</text>
+  <text x="648" y="516" class="box-sub">physics gate • XAI</text>
+  <text x="648" y="539" class="box-sub">evidence reporting</text>
+
+  <rect x="990" y="430" width="260" height="135" rx="20" class="release"/>
+  <text x="1018" y="466" class="box-title">utils/ + release gates</text>
+  <text x="1018" y="493" class="box-sub">reproducibility • readiness</text>
+  <text x="1018" y="516" class="box-sub">release validation</text>
+  <text x="1018" y="539" class="box-sub">stable promotion certificate</text>
+
+  <path d="M780 350 V395 H380 V430" class="thin"/>
+  <path d="M1060 350 V390 H750 V430" class="thin"/>
+  <path d="M1310 350 V395 H1120 V430" class="thin"/>
+
+  <!-- Repo surface -->
+  <rect x="110" y="650" width="240" height="125" rx="18" class="support"/>
+  <text x="135" y="685" class="box-title">scripts/</text>
+  <text x="135" y="712" class="box-sub">CLI orchestration</text>
+  <text x="135" y="735" class="box-sub">campaign • evidence • release</text>
+  <text x="135" y="758" class="box-sub">publication demo</text>
+
+  <rect x="390" y="650" width="210" height="125" rx="18" class="support"/>
+  <text x="415" y="685" class="box-title">configs/</text>
+  <text x="415" y="712" class="box-sub">COMSOL sweep</text>
+  <text x="415" y="735" class="box-sub">real validation</text>
+  <text x="415" y="758" class="box-sub">experiment manifests</text>
+
+  <rect x="640" y="650" width="210" height="125" rx="18" class="support"/>
+  <text x="665" y="685" class="box-title">tests/</text>
+  <text x="665" y="712" class="box-sub">core • dashboard • edge</text>
+  <text x="665" y="735" class="box-sub">evidence integrity</text>
+  <text x="665" y="758" class="box-sub">release contracts</text>
+
+  <rect x="890" y="650" width="210" height="125" rx="18" class="support"/>
+  <text x="915" y="685" class="box-title">docs/</text>
+  <text x="915" y="712" class="box-sub">scientific validation</text>
+  <text x="915" y="735" class="box-sub">hardware • reviewer</text>
+  <text x="915" y="758" class="box-sub">submission • release</text>
+
+  <rect x="1140" y="650" width="250" height="125" rx="18" class="release"/>
+  <text x="1165" y="685" class="box-title">.github/workflows/</text>
+  <text x="1165" y="712" class="box-sub">Python 3.10–3.13 matrix</text>
+  <text x="1165" y="735" class="box-sub">wheel / sdist / smoke tests</text>
+  <text x="1165" y="758" class="box-sub">release validation</text>
+
+  <path d="M380 565 V610 H230 V650" class="thin"/>
+  <path d="M750 565 V610 H495 V650" class="thin"/>
+  <path d="M750 565 V610 H745 V650" class="thin"/>
+  <path d="M1120 565 V610 H995 V650" class="thin"/>
+  <path d="M1120 565 V610 H1265 V650" class="thin"/>
+
+  <rect x="110" y="815" width="1280" height="42" rx="12" fill="#0d3245" stroke="#2a6f8a"/>
+  <text x="135" y="842" class="small">Scientific boundary: synthetic ≠ COMSOL physics ≠ experimental sensor evidence ≠ exact-device benchmark. Promotion requires qualified provenance.</text>
+  <text x="110" y="885" class="footer">CyberPhotonics-SPR • repository architecture visual • generated from the tracked code layout</text>
+</svg>
