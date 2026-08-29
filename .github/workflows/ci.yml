@@ -120,6 +120,27 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: pytest -q -W error --ignore=tests/test_edge_deployment.py --ignore=tests/test_full_pipeline.py
 
+  desktop-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu
+      - name: Install native desktop test dependencies
+        run: pip install -e ".[dev]"
+      - name: Native desktop render and launcher tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -q -W error tests/test_desktop_gui.py tests/test_main_dashboard_default.py
+
   dashboard:
     runs-on: ubuntu-latest
     timeout-minutes: 20
