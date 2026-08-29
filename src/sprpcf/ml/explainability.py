@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint
+
 from sprpcf.ml.dataset import FORWARD_INPUT_COLUMNS, METRIC_COLUMNS, read_table
 from sprpcf.ml.tandem import ForwardNetwork
 
@@ -95,7 +97,7 @@ def save_attribution_outputs(matrix: pd.DataFrame, output_csv: Path, heatmap_pat
 
 
 def load_forward_model_and_scalers(checkpoint_path: Path) -> tuple[ForwardNetwork, dict[str, np.ndarray]]:
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint = load_tandem_checkpoint(checkpoint_path)
     model = ForwardNetwork()
     model.load_state_dict(checkpoint["forward_state_dict"])
     model.eval()

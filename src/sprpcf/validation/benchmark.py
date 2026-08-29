@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
@@ -119,7 +121,7 @@ def evaluate_checkpoint(
     if mc_samples < 2:
         raise ValueError("mc_samples must be >= 2.")
 
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint = load_tandem_checkpoint(checkpoint_path)
     seed = int(checkpoint.get("seed", 7))
     data = DesignDataModule(data_path, batch_size=256, seed=seed)
     data.setup()

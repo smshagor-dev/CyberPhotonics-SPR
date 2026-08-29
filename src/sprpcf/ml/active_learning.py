@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint
+
 from sprpcf.ml.dataset import CONDITION_COLUMNS, GEOMETRY_COLUMNS, METRIC_COLUMNS, read_table
 from sprpcf.ml.tandem import InverseGenerator
 from sprpcf.simulation.comsol_sweep import run_comsol_geometries, write_dataset
@@ -145,7 +147,7 @@ def trigger_comsol_for_uncertain_candidates(
 def load_checkpoint_inverse(
     checkpoint_path: Path,
 ) -> tuple[InverseGenerator, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint = load_tandem_checkpoint(checkpoint_path)
     inverse = InverseGenerator()
     inverse.load_state_dict(checkpoint["inverse_state_dict"])
     return (

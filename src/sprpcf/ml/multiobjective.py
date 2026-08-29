@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint
+
 from sprpcf.ml.dataset import (
     CONDITION_COLUMNS,
     GEOMETRY_COLUMNS,
@@ -51,7 +53,7 @@ class MultiObjectiveResult:
 
 
 def _load_checkpoint(path: Path) -> dict[str, Any]:
-    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    checkpoint = load_tandem_checkpoint(path)
     required = [
         "forward_state_dict",
         "inverse_state_dict",

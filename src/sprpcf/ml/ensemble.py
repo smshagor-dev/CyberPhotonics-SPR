@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint, save_tandem_checkpoint
+
 from sprpcf.ml.dataset import DesignDataModule
 from sprpcf.ml.tandem import ForwardNetwork
 from sprpcf.ml.train_tandem import _select_device, evaluate_forward, train_forward
@@ -52,7 +54,7 @@ def build_forward_ensemble_checkpoint(
         raise ValueError("epochs must be >= 1.")
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1.")
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint = load_tandem_checkpoint(checkpoint_path)
     if "forward_state_dict" not in checkpoint:
         raise ValueError("Checkpoint is missing forward_state_dict.")
     seed = int(checkpoint.get("seed", 7))
@@ -84,7 +86,7 @@ def build_forward_ensemble_checkpoint(
         "base_seed": int(seed),
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(checkpoint, output_path)
+    save_tandem_checkpoint(checkpoint, output_path)
     return {
         "members": int(members),
         "validation_metrics": metrics,

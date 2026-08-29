@@ -6,6 +6,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,6 +39,9 @@ class ApiResponse:
 
 
 def _request(token: str, method: str, url: str, payload: dict[str, Any] | None = None) -> ApiResponse:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "api.github.com":
+        raise ValueError("Only https://api.github.com requests are permitted.")
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -52,7 +56,7 @@ def _request(token: str, method: str, url: str, payload: dict[str, Any] | None =
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 -- URL allowlisted above
             body = response.read()
             decoded = json.loads(body.decode("utf-8")) if body else None
             return ApiResponse(int(response.status), decoded)
