@@ -12,6 +12,7 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import trange
 
+from sprpcf.ml.checkpoint_io import save_tandem_checkpoint
 from sprpcf.ml.dataset import CONDITION_COLUMNS, DesignDataModule, GEOMETRY_COLUMNS, METRIC_COLUMNS
 from sprpcf.ml.losses import clamp_physical_geometry, geometry_constraint_loss
 from sprpcf.ml.onnx_export import export_inverse_generator_onnx
@@ -175,7 +176,7 @@ def train_tandem_pipeline(
         "metric_scale": data.metric_scaler.scale_,
         "seed": seed,
     }
-    torch.save(checkpoint, checkpoint_out)
+    save_tandem_checkpoint(checkpoint, checkpoint_out)
     export_inverse_generator_onnx(
         inverse,
         onnx_out,

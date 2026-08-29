@@ -98,6 +98,10 @@ A contribution must not:
 
 If a manuscript-facing result depends on real physical evidence, provide the appropriate qualified evidence or leave the claim explicitly marked as pending.
 
+### Checkpoint security
+
+Current tandem checkpoints are written in a format compatible with PyTorch `weights_only=True` loading. Older checkpoints that require unrestricted pickle deserialization are intentionally rejected by current loaders. Regenerate those checkpoints with the current training pipeline rather than disabling the safe loader.
+
 ## Data, models, and generated artifacts
 
 Do not commit large generated datasets, model weights, temporary caches, private `.mph` files, or local runtime outputs unless the repository intentionally tracks that artifact and the pull request explains why.

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import torch
 
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint
+
 from sprpcf.ml.losses import clamp_physical_geometry
 from sprpcf.ml.onnx_export import export_inverse_generator_onnx
 from sprpcf.ml.tandem import ForwardNetwork, InverseGenerator, TandemNetwork
@@ -29,7 +31,7 @@ class PhysicalTandemWrapper(torch.nn.Module):
 
 
 def export_tandem_onnx(checkpoint_path: Path, output_path: Path) -> None:
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint = load_tandem_checkpoint(checkpoint_path)
     model = TandemNetwork(ForwardNetwork(), InverseGenerator())
     model.load_state_dict(checkpoint["model"])
     model.eval()
@@ -59,7 +61,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--inverse-only", action="store_true")
     args = parser.parse_args()
-    checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    checkpoint = load_tandem_checkpoint(args.checkpoint)
     if args.inverse_only:
         inverse = InverseGenerator()
         inverse.load_state_dict(checkpoint["inverse_state_dict"])

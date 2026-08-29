@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
 
+from sprpcf.ml.checkpoint_io import save_tandem_checkpoint
 from sprpcf.ml.dataset import DesignDataModule
 from sprpcf.ml.tandem import ForwardNetwork, InverseGenerator
 from sprpcf.simulation.synthetic import build_synthetic_dataset
@@ -82,7 +82,7 @@ def test_checkpoint_evaluation_reports_target_satisfaction_and_constraints(tmp_p
     forward = ForwardNetwork()
     inverse = InverseGenerator()
     checkpoint_path = tmp_path / "tandem.pt"
-    torch.save(
+    save_tandem_checkpoint(
         {
             "forward_state_dict": forward.state_dict(),
             "inverse_state_dict": inverse.state_dict(),

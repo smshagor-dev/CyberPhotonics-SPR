@@ -26,9 +26,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install CPU PyTorch
+      - name: Install patched packaging baseline and CPU PyTorch
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip "setuptools>=83"
           pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu
       - name: Install auditable project environment
         run: |
