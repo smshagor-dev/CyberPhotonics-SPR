@@ -1,0 +1,147 @@
+name: Publish v1.0.0rc1
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-v1.0.0rc1.yml"
+  workflow_run:
+    workflows:
+      - "Research Release Validation"
+    types:
+      - completed
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  create-tag:
+    if: github.event_name == 'push' && github.repository == 'smshagor-dev/CyberPhotonics-SPR'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Verify exact validated release target
+        shell: bash
+        env:
+          TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
+          RELEASE_TAG: v1.0.0rc1
+        run: |
+          set -euo pipefail
+          git cat-file -e "${TARGET_SHA}^{commit}"
+          version=$(git show "${TARGET_SHA}:pyproject.toml" | sed -n 's/^version = "\([^"]*\)"/\1/p' | head -n1)
+          test "$version" = "1.0.0rc1"
+          git merge-base --is-ancestor "$TARGET_SHA" HEAD
+          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "${RELEASE_TAG} already exists; leaving it unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" "$TARGET_SHA" -m "CyberPhotonics-SPR ${RELEASE_TAG}"
+          git push origin "refs/tags/${RELEASE_TAG}"
+
+  publish-prerelease:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.name == 'Research Release Validation' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_sha == '9da24f4edb292666d1721328e96e2ff2f54abb60'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 9da24f4edb292666d1721328e96e2ff2f54abb60
+          fetch-depth: 0
+      - name: Verify validated tag identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
+          RELEASE_TAG: v1.0.0rc1
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          resolved=$(git rev-list -n 1 "$RELEASE_TAG")
+          test "$resolved" = "$TARGET_SHA"
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml | head -n1)
+          test "$version" = "1.0.0rc1"
+      - name: Download validated release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifact
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "research-release-v1.0.0rc1" \
+            --dir release-artifact
+          test -d release-artifact/dist
+          find release-artifact -maxdepth 3 -type f -print
+      - name: Publish GitHub pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: v1.0.0rc1
+          TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; leaving it unchanged."
+            exit 0
+          fi
+
+          cat > release-notes.md <<'EOF'
+          # CyberPhotonics-SPR v1.0.0rc1
+
+          First release candidate of the CyberPhotonics-SPR research and engineering framework for PCF-SPR simulation, physics-informed inverse design, uncertainty-aware multi-objective optimization, reproducible validation, evidence qualification, edge inference, and publication packaging.
+
+          ![CyberPhotonics-SPR code architecture](https://raw.githubusercontent.com/smshagor-dev/CyberPhotonics-SPR/v1.0.0rc1/docs/assets/cyberphotonics-spr-code-layout.svg)
+
+          ## Highlights
+
+          - Fixed-geometry refractive-index sweep contracts for scientifically valid sensitivity calculations.
+          - Resonance, FWHM, sensitivity, FOM, and RI-linearity calculations with explicit units and independent validation paths.
+          - Tandem inverse design with fabrication constraints, uncertainty calibration, OOD diagnostics, and Pareto ranking.
+          - COMSOL orchestration and closed-loop numerical-physics verification interfaces.
+          - Real-validation preflight and evidence qualification for COMSOL, experimental sensor data, and exact-device benchmarks.
+          - Evidence-aware reviewer/submission finalization and manuscript Results packaging.
+          - LiteRT/TFLite edge deployment, hardware-facing spectrum processing, and exact-device benchmark contracts.
+          - Streamlit research dashboard and reproducibility/release tooling.
+          - Python 3.10–3.13 CI, isolated wheel smoke tests, and warnings-as-errors validation.
+
+          ## Release assets
+
+          This pre-release includes the validated Python wheel and source distribution produced by the tag-time release workflow, together with release-readiness and wheel-smoke evidence files.
+
+          ## Scientific boundary
+
+          This is a **release candidate**, not a claim that real physical validation is complete. Synthetic and CI data demonstrate software and workflow behavior only. Numerical-physics claims require qualified COMSOL outputs; experimental sensor claims require measured laboratory data; device-performance claims require measurements on the exact target device. Stable `v1.0.0` remains gated on qualified physical evidence.
+
+          ## Reproducibility
+
+          Release target commit: `9da24f4edb292666d1721328e96e2ff2f54abb60`
+
+          Use `CITATION.cff`, the release evidence artifacts, and the exact Git commit when referencing computational results.
+          EOF
+
+          assets=()
+          while IFS= read -r -d '' file; do assets+=("$file"); done < <(find release-artifact/dist -maxdepth 1 -type f \( -name '*.whl' -o -name '*.tar.gz' \) -print0)
+          for file in release-artifact/release-validation.json release-artifact/release-readiness.json release-artifact/release-readiness.md release-artifact/wheel-smoke.json; do
+            if [[ -f "$file" ]]; then assets+=("$file"); fi
+          done
+          test "${#assets[@]}" -ge 2
+
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "CyberPhotonics-SPR v1.0.0rc1" \
+            --notes-file release-notes.md \
+            --prerelease \
+            --verify-tag \
+            "${assets[@]}"
