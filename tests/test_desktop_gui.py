@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtWidgets import QApplication, QPushButton
+
+from sprpcf.desktop.app import APP_TITLE, ControlCenter
+from sprpcf.desktop.dialogs import generate_data_form, pipeline_form
+from sprpcf.desktop.widgets import StatCard
+
+
+def _app() -> QApplication:
+    return QApplication.instance() or QApplication([])
+
+
+def test_native_control_center_constructs_without_web_runtime() -> None:
+    _app()
+    window = ControlCenter()
+    try:
+        assert APP_TITLE in window.windowTitle()
+        assert window.minimumWidth() >= 1100
+        assert window.sidebar is not None
+        cards = window.findChildren(StatCard)
+        assert len(cards) == 6
+        assert window.dataset_card.value_label.text()
+        assert window.inverse_card.value_label.text()
+        assert window.pipeline_card.value_label.text()
+        labels = [button.text() for button in window.findChildren(QPushButton)]
+        assert any("Generate" in value and "Dataset" in value for value in labels)
+        assert any("Run" in value and "Pipeline" in value for value in labels)
+        assert any("Verify" in value and "Physics" in value for value in labels)
+        assert any("Generate" in value and "Report" in value for value in labels)
+    finally:
+        window.close()
+
+
+def test_operation_forms_are_native_qt_dialogs() -> None:
+    _app()
+    generate = generate_data_form()
+    pipeline = pipeline_form()
+    try:
+        assert generate.windowTitle() == "Generate Dataset"
+        assert pipeline.windowTitle() == "Run A → B → C Pipeline"
+        assert "samples" in generate._widgets
+        assert "inverse_epochs" in pipeline._widgets
+    finally:
+        generate.close()
+        pipeline.close()
