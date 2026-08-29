@@ -209,7 +209,9 @@ def launch_dashboard(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="PCF-SPR inverse design and edge deployment orchestrator.")
+    parser = argparse.ArgumentParser(
+        description="CyberPhotonics-SPR orchestrator. Run without a subcommand to open the dashboard."
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     generate = subparsers.add_parser("generate-data", help="Generate fixed-geometry RI-sweep synthetic data.")
@@ -288,7 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     hil.add_argument("--socket-port", type=int, default=9000)
     hil.set_defaults(func=run_hil_benchmark)
 
-    dashboard = subparsers.add_parser("dashboard", help="Launch the Streamlit web dashboard.")
+    dashboard = subparsers.add_parser("dashboard", help="Launch the Streamlit control center.")
     dashboard.add_argument("--port", type=int, default=8501)
     dashboard.add_argument("--host", default="localhost")
     dashboard.set_defaults(func=launch_dashboard)
@@ -299,7 +301,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
-        parser.print_help()
+        launch_dashboard(argparse.Namespace(port=8501, host="localhost"))
         return
     args.func(args)
 
