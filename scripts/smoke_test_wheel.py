@@ -13,6 +13,7 @@ CRITICAL_IMPORTS = (
     "sprpcf.ml.multiobjective",
     "sprpcf.validation.closed_loop",
     "sprpcf.validation.campaign",
+    "sprpcf.validation.preflight",
     "sprpcf.edge.hardware",
     "sprpcf.evidence.qualification",
     "sprpcf.publication.evidence",
