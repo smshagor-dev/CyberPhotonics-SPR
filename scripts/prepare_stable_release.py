@@ -24,8 +24,8 @@ def main() -> None:
         description="Gate stable-version promotion on qualified evidence, finalization, and manuscript Results readiness."
     )
     parser.add_argument("--repo-root", type=Path, default=Path("."))
-    parser.add_argument("--finalization-dir", type=Path, required=True)
-    parser.add_argument("--paper-results-dir", type=Path, required=True)
+    parser.add_argument("--finalization-dir", type=Path)
+    parser.add_argument("--paper-results-dir", type=Path)
     parser.add_argument("--target-version", default="1.0.0")
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--markdown-out", type=Path)
@@ -45,6 +45,8 @@ def main() -> None:
             raise SystemExit(2)
         return
 
+    if args.finalization_dir is None or args.paper_results_dir is None:
+        parser.error("--finalization-dir and --paper-results-dir are required unless --validate-certificate is used.")
     plan = build_stable_release_plan(
         repo_root=args.repo_root,
         finalization_dir=args.finalization_dir,
