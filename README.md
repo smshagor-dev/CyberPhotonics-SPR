@@ -3,6 +3,7 @@
 [![CI](https://github.com/smshagor-dev/CyberPhotonics-SPR/actions/workflows/ci.yml/badge.svg)](https://github.com/smshagor-dev/CyberPhotonics-SPR/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.10--3.13-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache--2.0-blue)
+![Version](https://img.shields.io/badge/Version-1.0.0rc1-orange)
 
 **CyberPhotonics-SPR** is a research and engineering framework for photonic crystal fiber surface plasmon resonance (PCF-SPR) sensor design. It combines numerical photonics, physics-informed inverse design, uncertainty-aware multi-objective optimization, COMSOL verification, edge inference, hardware-facing spectrum processing, and reproducible scientific reporting in one codebase.
 
@@ -15,6 +16,14 @@ The mathematical calculation path is part of the software contract. Resonance wa
 
 > **Evidence policy**  
 > Synthetic data validate software and methodology. COMSOL results are numerical-physics evidence only when produced from a verified model and configuration. Experimental performance claims require measured sensor data. Surrogate predictions are never presented as experimental measurements.
+
+## Code & system layout
+
+<p align="center">
+  <img src="docs/assets/cyberphotonics-spr-code-layout.svg" alt="CyberPhotonics-SPR code and research architecture" width="100%" />
+</p>
+
+The diagram maps the tracked package layout to the research flow: `simulation/` → `ml/` → `validation/` → `evidence/` → `publication/`, with `edge/`, `dashboard/`, release utilities, CLI orchestration, configuration contracts, tests, documentation, and GitHub Actions forming the deployment and reproducibility surface.
 
 ---
 
@@ -257,7 +266,6 @@ S_\lambda
 ```
 
 The dataset-generation path uses finite-difference gradients inside each fixed-geometry RI sweep.
-
 For independent validation, a straight line is fitted across the complete RI sweep:
 
 ```math
@@ -398,7 +406,6 @@ metal_thickness_nm
 channel_radius_um
 analyte_ri
 ```
-
 and predicts:
 
 ```text
@@ -537,7 +544,6 @@ OOD > 1.0   → outside the calibrated reference threshold
 ```
 
 This is a model-domain diagnostic, not proof of physical validity.
-
 ## 5.4 Pareto objectives and ranking
 
 For target metric `j`, normalized error is
