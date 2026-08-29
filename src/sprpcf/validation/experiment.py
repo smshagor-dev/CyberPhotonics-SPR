@@ -93,6 +93,10 @@ def _r2(observed: np.ndarray, predicted: np.ndarray) -> float:
     return float(1.0 - residual / total)
 
 
+def _sample_std(values: pd.Series) -> float:
+    return float(values.std(ddof=1)) if values.size > 1 else float("nan")
+
+
 def _plot_resonance(summary: pd.DataFrame, slope: float, intercept: float, path: Path) -> None:
     x = summary["analyte_ri"].to_numpy(dtype=float)
     y = summary["lambda_res_mean_nm"].to_numpy(dtype=float)
@@ -163,7 +167,7 @@ def analyze_experimental_measurements(
     ri_summary = grouped.agg(
         replicate_count=("lambda_res_nm", "size"),
         lambda_res_mean_nm=("lambda_res_nm", "mean"),
-        lambda_res_std_nm=("lambda_res_nm", lambda values: float(values.std(ddof=1)) if values.size > 1 else np.nan),
+        lambda_res_std_nm=("lambda_res_nm", _sample_std),
         fwhm_mean_nm=("fwhm_nm", "mean"),
     ).reset_index()
 
