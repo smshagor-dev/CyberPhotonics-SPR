@@ -77,7 +77,7 @@ def test_preflight_blocks_placeholders_without_claiming_evidence(tmp_path: Path)
     assert "experiment:instrument_id" in failed
     assert "experiment:acquired_at" in failed
     assert "device:device_name" in failed
-    assert "physical evidence" in report["scientific_boundary"]
+    assert "exact-device evidence" in report["scientific_boundary"]
 
 
 def test_preflight_passes_when_real_execution_inputs_are_prepared(tmp_path: Path) -> None:
