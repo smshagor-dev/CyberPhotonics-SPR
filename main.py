@@ -197,11 +197,119 @@ def run_hil_benchmark(args: argparse.Namespace) -> None:
     print(f"\nWrote benchmark report to {args.report}")
 
 
-def launch_dashboard(args: argparse.Namespace) -> None:
+def design_sensor(args: argparse.Namespace) -> None:
+    from sprpcf.dashboard.core import target_frame
+    from sprpcf.ml.multiobjective import optimize_target_table
+
+    target = target_frame(args.sensitivity, args.fom, args.lambda_res, args.analyte_ri)
+    result = optimize_target_table(
+        args.checkpoint,
+        target,
+        args.data,
+        candidates_per_target=args.candidates,
+        confidence=args.confidence,
+        latent_scale=args.latent_scale,
+        seed=args.seed,
+        device=args.device,
+    )
+    args.out.mkdir(parents=True, exist_ok=True)
+    target.to_csv(args.out / "design_target.csv", index=False)
+    result.candidates.to_csv(args.out / "pareto_candidates.csv", index=False)
+    result.selected.to_csv(args.out / "pareto_selected_designs.csv", index=False)
+    (args.out / "design_calibration.json").write_text(
+        json.dumps(result.calibration, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    print(f"Generated {len(result.candidates)} candidates; selected {len(result.selected)} design(s).")
+    print(f"Wrote design evidence to {args.out}")
+
+
+def verify_physics(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from sprpcf.ml.dataset import CONDITION_COLUMNS, METRIC_COLUMNS
+    from sprpcf.validation.closed_loop import AcceptanceThresholds, run_closed_loop_iteration
+
+    selected = pd.read_csv(args.selected)
+    if selected.empty:
+        raise ValueError("Selected design CSV is empty.")
+    required = [*METRIC_COLUMNS, *CONDITION_COLUMNS]
+    missing = [column for column in required if column not in selected.columns]
+    if missing:
+        raise ValueError(f"Selected design is missing target columns: {missing}")
+    target = selected[required].head(1).copy()
+    args.out.mkdir(parents=True, exist_ok=True)
+    target_path = args.out / "verification_target.csv"
+    target.to_csv(target_path, index=False)
+
+    fixed = selected.head(1).copy()
+
+    def fixed_designer(_target: pd.DataFrame) -> pd.DataFrame:
+        return fixed.copy()
+
+    model_path = Path(args.model) if args.model else None
+    config_path = Path(args.config) if args.config else None
+    artifacts = run_closed_loop_iteration(
+        checkpoint_path=args.checkpoint,
+        target_path=target_path,
+        base_dataset_path=args.data,
+        output_dir=args.out,
+        backend=args.backend,
+        model_path=model_path,
+        config_path=config_path,
+        ri_span=args.ri_span,
+        ri_points=args.ri_points,
+        thresholds=AcceptanceThresholds(),
+        designer=fixed_designer,
+        retrain=False,
+        seed=args.seed,
+    )
+    print(json.dumps({
+        "backend": artifacts.backend,
+        "selected_targets": artifacts.selected_targets,
+        "accepted_targets": artifacts.accepted_targets,
+        "verification": str(artifacts.verification_results),
+        "simulation": str(artifacts.simulation_results),
+    }, indent=2))
+
+
+def generate_report(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from sprpcf.dashboard.core import research_report_markdown, target_frame
+
+    selected_frame = pd.read_csv(args.selected)
+    if selected_frame.empty:
+        raise ValueError("Selected design CSV is empty.")
+    selected = selected_frame.iloc[0]
+    target = target_frame(
+        float(selected["sensitivity_nm_per_riu"]),
+        float(selected["fom_per_riu"]),
+        float(selected["lambda_res_nm"]),
+        float(selected["analyte_ri"]),
+    ).iloc[0]
+    verification = None
+    if args.verification.exists():
+        verification_frame = pd.read_csv(args.verification)
+        if not verification_frame.empty:
+            verification = verification_frame.iloc[0]
+    backend = "synthetic"
+    report = research_report_markdown(target, selected, verification, backend=backend, evidence={})
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(report, encoding="utf-8")
+    print(f"Wrote research evidence report to {args.out}")
+
+
+def launch_desktop(_args: argparse.Namespace | None = None) -> None:
+    from sprpcf.desktop import launch_desktop as run_desktop
+
+    raise SystemExit(run_desktop())
+
+
+def launch_web_dashboard(args: argparse.Namespace) -> None:
     from sprpcf.ui.dashboard import build_streamlit_command
 
     command = build_streamlit_command(port=args.port, host=args.host)
-    print(f"Launching dashboard at http://{args.host}:{args.port}")
+    print(f"Launching legacy web dashboard at http://{args.host}:{args.port}")
     os = __import__("os")
     os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
     subprocess = __import__("subprocess")
@@ -210,7 +318,7 @@ def launch_dashboard(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="CyberPhotonics-SPR orchestrator. Run without a subcommand to open the dashboard."
+        description="CyberPhotonics-SPR orchestrator. Run without a subcommand to open the native desktop GUI."
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -290,10 +398,49 @@ def build_parser() -> argparse.ArgumentParser:
     hil.add_argument("--socket-port", type=int, default=9000)
     hil.set_defaults(func=run_hil_benchmark)
 
-    dashboard = subparsers.add_parser("dashboard", help="Launch the Streamlit control center.")
-    dashboard.add_argument("--port", type=int, default=8501)
-    dashboard.add_argument("--host", default="localhost")
-    dashboard.set_defaults(func=launch_dashboard)
+    design = subparsers.add_parser("design-sensor", help=argparse.SUPPRESS)
+    design.add_argument("--checkpoint", type=Path, default=DEFAULT_MODEL_DIR / "tandem.pt")
+    design.add_argument("--data", type=Path, default=DEFAULT_DATASET)
+    design.add_argument("--sensitivity", type=float, default=800.0)
+    design.add_argument("--fom", type=float, default=20.0)
+    design.add_argument("--lambda-res", type=float, default=750.0)
+    design.add_argument("--analyte-ri", type=float, default=1.37)
+    design.add_argument("--candidates", type=int, default=128)
+    design.add_argument("--confidence", type=float, default=0.95)
+    design.add_argument("--latent-scale", type=float, default=0.10)
+    design.add_argument("--seed", type=int, default=7)
+    design.add_argument("--device", default="cpu")
+    design.add_argument("--out", type=Path, default=Path("outputs/dashboard/design"))
+    design.set_defaults(func=design_sensor)
+
+    verify = subparsers.add_parser("verify-physics", help=argparse.SUPPRESS)
+    verify.add_argument("--checkpoint", type=Path, default=DEFAULT_MODEL_DIR / "tandem.pt")
+    verify.add_argument("--data", type=Path, default=DEFAULT_DATASET)
+    verify.add_argument("--selected", type=Path, default=Path("outputs/dashboard/design/pareto_selected_designs.csv"))
+    verify.add_argument("--backend", choices=["synthetic", "comsol"], default="synthetic")
+    verify.add_argument("--ri-span", type=float, default=0.04)
+    verify.add_argument("--ri-points", type=int, default=5)
+    verify.add_argument("--seed", type=int, default=7)
+    verify.add_argument("--out", type=Path, default=Path("outputs/dashboard/physics"))
+    verify.add_argument("--model", default="")
+    verify.add_argument("--config", default="")
+    verify.set_defaults(func=verify_physics)
+
+    report = subparsers.add_parser("generate-report", help=argparse.SUPPRESS)
+    report.add_argument("--selected", type=Path, default=Path("outputs/dashboard/design/pareto_selected_designs.csv"))
+    report.add_argument("--verification", type=Path, default=Path("outputs/dashboard/physics/verification.csv"))
+    report.add_argument("--out", type=Path, default=Path("outputs/dashboard/dashboard_evidence_report.md"))
+    report.set_defaults(func=generate_report)
+
+    desktop = subparsers.add_parser("gui", help="Launch the native desktop control center.")
+    desktop.set_defaults(func=launch_desktop)
+    dashboard = subparsers.add_parser("dashboard", help="Launch the native desktop control center.")
+    dashboard.set_defaults(func=launch_desktop)
+
+    web = subparsers.add_parser("web-dashboard", help="Launch the legacy Streamlit web dashboard.")
+    web.add_argument("--port", type=int, default=8501)
+    web.add_argument("--host", default="localhost")
+    web.set_defaults(func=launch_web_dashboard)
     return parser
 
 
@@ -301,7 +448,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
-        launch_dashboard(argparse.Namespace(port=8501, host="localhost"))
+        launch_desktop()
         return
     args.func(args)
 

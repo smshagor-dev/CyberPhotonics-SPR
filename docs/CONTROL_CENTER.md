@@ -1,94 +1,95 @@
-# CyberPhotonics-SPR Control Center
+# CyberPhotonics-SPR Native Control Center
 
-The default interactive entry point is now:
+The default interactive entry point is:
 
 ```powershell
 python main.py
 ```
 
-That command launches the Streamlit control center on `localhost:8501`. Researchers do not need to memorize CLI subcommands for normal operation.
+That command opens the **native PySide6 desktop application**. It does not start a browser, local HTTP server, Streamlit session, or localhost dashboard.
 
-## Pages
+The desktop composition follows the CyberPhotonics-SPR control-center design: persistent navigation on the left, global system state at the top, six readiness cards, sensorgram and pipeline panels, training/edge/HIL panels, quick actions, and a bottom system/session bar.
 
-### Overview
+## Main dashboard
 
-Shows the current workspace state before a long experiment starts:
+The overview surface contains:
 
-- synthetic/reference dataset availability;
-- tandem checkpoint and ONNX export status;
-- Keras and quantized TFLite edge artifacts;
-- HIL report availability;
-- optional runtime capabilities such as TensorFlow, LiteRT, COMSOL `mph`, serial hardware, and SHAP;
-- recent dashboard-run task history.
+- dataset state and row count;
+- tandem checkpoint and ONNX readiness;
+- INT8 denoiser and RI-predictor readiness;
+- A → B → C pipeline state;
+- HIL evidence state;
+- overall workspace health;
+- live spectrum preview from the project dataset when available;
+- resonance/FWHM/RI context;
+- pipeline stage visualization;
+- forward/inverse training panels;
+- edge deployment metrics;
+- HIL metrics and thermal-drift visualization;
+- eight quick actions.
 
-### Data & Training
+## Native operations
 
-Provides forms for all data/model build operations:
+Every normal workflow can be started from a Qt form. The user does not have to type a command.
 
-- synthetic fixed-geometry RI-sweep generation;
-- tandem inverse-model training;
-- separate forward/inverse epoch schedules;
-- ONNX export;
-- edge denoiser and RI-predictor training;
-- optional quantized TFLite export.
+### Data & training
 
-### Pipeline & Streaming
+- Generate Dataset
+- Train Inverse Model
+- Train Edge Models
+- Open exported models
 
-Runs the complete software path from one form:
+### Pipeline & streaming
 
-```text
-synthetic data
-  -> tandem inverse model
-  -> edge denoiser / RI predictor
-  -> INT8 TFLite export
-  -> streaming benchmark
-```
+- Run full A → B → C pipeline
+- Run streaming benchmark
 
-The streaming page can also benchmark already-built TFLite models without retraining.
+### HIL
 
-### HIL Lab
+- mock transport
+- serial transport
+- socket transport
+- target FPS / buffer / duration
+- optional thermal-drift injection
+- JSON benchmark report
 
-Runs the Phase 4 hardware-in-the-loop benchmark with:
+### Research design
 
-- mock transport;
-- serial transport;
-- socket transport;
-- configurable duration/FPS/buffer size;
-- optional thermal-drift injection;
-- JSON report output.
+- calibrated multi-objective inverse design
+- candidate population generation
+- fabrication projection
+- uncertainty/OOD scoring
+- Pareto selection
 
-### Research Design
+### Physics gate
 
-Uses the trained tandem checkpoint and reference dataset for calibrated multi-objective inverse design, fabrication projection, OOD scoring, uncertainty calibration, and Pareto selection.
+- exact selected-candidate verification
+- synthetic software-validation backend
+- COMSOL backend when model/configuration are supplied
+- fixed-geometry RI sweep
+- reviewer-facing acceptance evidence
 
-### Physics Gate
+### Evidence & report
 
-Preserves the exact selected design and verifies it with either:
+- open generated evidence artifacts
+- produce reviewer-readable Markdown research evidence
 
-- the synthetic/software-validation backend; or
-- a user-supplied COMSOL model and sweep configuration.
+## Execution model
 
-Acceptance thresholds remain explicit and reviewer-facing.
+Long-running work is started with Qt `QProcess` using the current Python executable and the same project backend used by the CLI. Output is streamed into a native process-console dialog.
 
-### Evidence & Report
+No user-provided path or value is passed through a shell.
 
-Loads validation, XAI, and hardware evidence, calculates file hashes, and exports a reviewer-readable Markdown evidence report.
+This keeps:
 
-## How operations are executed
-
-The dashboard does not reimplement training code. Each long operation is launched through the same `main.py` CLI backend in an isolated child process using the current Python interpreter.
-
-Commands are constructed as argument lists and are never passed through a shell. This provides three useful properties:
-
-1. dashboard and CLI behavior stay aligned;
-2. TensorFlow/PyTorch runtime state cannot contaminate the Streamlit server process;
-3. user-entered paths and values are not interpreted as shell syntax.
-
-Combined stdout/stderr is streamed back into the dashboard and kept in a short in-session operation history.
+1. GUI and CLI behavior aligned;
+2. TensorFlow/PyTorch training isolated from the GUI process;
+3. the Qt event loop responsive during long operations;
+4. command execution safe from shell interpolation.
 
 ## CLI compatibility
 
-The deterministic CLI remains available for automation, CI, scripts, and reproducible experiment manifests:
+The CLI remains available for automation and reproducible scripted experiments:
 
 ```powershell
 python main.py generate-data
@@ -97,17 +98,29 @@ python main.py train-edge
 python main.py run-pipeline
 python main.py simulate-stream
 python main.py hil-benchmark
+```
+
+The aliases below open the same native GUI:
+
+```powershell
+python main.py gui
 python main.py dashboard
 ```
 
-Use `python main.py -h` or `<subcommand> -h` when working from a terminal.
+The former Streamlit implementation is retained only as an explicit legacy option:
+
+```powershell
+python main.py web-dashboard
+```
+
+It is not used by the normal desktop workflow.
 
 ## Evidence boundary
 
-The control center preserves the repository evidence policy:
+The native interface preserves the repository evidence policy:
 
-- synthetic results validate software and analytical flow;
-- verified COMSOL runs may support numerical-physics claims;
+- synthetic outputs validate software and analytical flow;
+- verified COMSOL outputs may support numerical-physics claims;
 - experimental performance claims require measured sensor data.
 
-The dashboard does not relabel surrogate or synthetic outputs as experimental measurements.
+The GUI does not relabel surrogate or synthetic values as experimental measurements.
