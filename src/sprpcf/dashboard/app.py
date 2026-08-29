@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Iterable
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -16,16 +17,84 @@ from sprpcf.dashboard.core import (
     target_frame,
     xai_feature_summary,
 )
+from sprpcf.dashboard.operations import (
+    PROJECT_ROOT,
+    TaskResult,
+    artifact_inventory,
+    capability_inventory,
+    human_bytes,
+    run_cli_task,
+)
 from sprpcf.ml.dataset import read_table
 from sprpcf.ml.multiobjective import optimize_target_table
 from sprpcf.validation.closed_loop import AcceptanceThresholds, run_closed_loop_iteration
 
 
+DASHBOARD_PAGES = [
+    "Overview",
+    "Data & Training",
+    "Pipeline & Streaming",
+    "HIL Lab",
+    "Research Design",
+    "Physics Gate",
+    "Evidence & Report",
+]
+
+
 def _existing_path(value: str, label: str) -> Path:
     path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
     if not path.exists():
         raise FileNotFoundError(f"{label} does not exist: {path}")
     return path
+
+
+def _project_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _inject_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        .block-container { padding-top: 1.35rem; padding-bottom: 3rem; max-width: 1500px; }
+        [data-testid="stSidebar"] { border-right: 1px solid rgba(128,128,128,.18); }
+        .spr-hero {
+            padding: 1.2rem 1.35rem;
+            border: 1px solid rgba(49, 130, 206, .24);
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(17,94,89,.13), rgba(30,64,175,.09));
+            margin-bottom: 1rem;
+        }
+        .spr-hero h1 { margin: 0; font-size: 1.85rem; }
+        .spr-hero p { margin: .4rem 0 0; opacity: .78; }
+        .spr-kicker { font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .66; }
+        .spr-note {
+            padding: .75rem .9rem;
+            border-radius: 10px;
+            background: rgba(128,128,128,.08);
+            border: 1px solid rgba(128,128,128,.14);
+        }
+        div[data-testid="stMetric"] { border: 1px solid rgba(128,128,128,.14); padding: .75rem; border-radius: 12px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _hero() -> None:
+    st.markdown(
+        """
+        <div class="spr-hero">
+          <div class="spr-kicker">PCF-SPR · AI inverse design · edge deployment</div>
+          <h1>CyberPhotonics-SPR Control Center</h1>
+          <p>Generate data, train models, run the full pipeline, benchmark streaming/HIL hardware, and produce reviewer-facing research evidence from one interface.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _save_design_outputs(output_dir: Path, result) -> None:
@@ -47,12 +116,356 @@ def _metrics_strip(selected: pd.Series) -> None:
     columns[4].metric("Metal (nm)", f"{float(selected['metal_thickness_nm']):.2f}")
 
 
-def _design_tab(
-    checkpoint_text: str,
-    reference_text: str,
-    output_root: Path,
-    target: pd.DataFrame,
-) -> None:
+def _task_history() -> list[dict[str, object]]:
+    return st.session_state.setdefault("operations_history", [])
+
+
+def _remember_task(result: TaskResult) -> None:
+    history = _task_history()
+    history.insert(0, result.to_dict())
+    del history[20:]
+
+
+def _run_operation(name: str, subcommand: str, arguments: Iterable[str]) -> TaskResult:
+    lines: list[str] = []
+    with st.status(f"{name} is running", expanded=True) as status:
+        st.caption("The dashboard uses the same Python environment and CLI backend as main.py. No shell command is interpolated.")
+        output_box = st.empty()
+
+        def on_output(line: str) -> None:
+            lines.append(line)
+            output_box.code("\n".join(lines[-80:]) or "Starting…", language="text")
+
+        try:
+            result = run_cli_task(name, subcommand, arguments, on_output=on_output)
+        except Exception as exc:
+            status.update(label=f"{name} failed to start", state="error", expanded=True)
+            st.exception(exc)
+            raise
+
+        if result.output and not lines:
+            output_box.code(result.output, language="text")
+        if result.success:
+            status.update(label=f"{name} completed in {result.elapsed_sec:.1f}s", state="complete", expanded=False)
+        else:
+            status.update(label=f"{name} failed with exit code {result.returncode}", state="error", expanded=True)
+    _remember_task(result)
+    if result.success:
+        st.success(f"{name} completed successfully.")
+    else:
+        st.error(f"{name} failed. Review the captured output above.")
+    return result
+
+
+def _render_task_history() -> None:
+    history = _task_history()
+    if not history:
+        return
+    with st.expander("Recent dashboard operations", expanded=False):
+        summary = pd.DataFrame(
+            [
+                {
+                    "Task": row["name"],
+                    "Status": "Success" if row["success"] else "Failed",
+                    "Exit": row["returncode"],
+                    "Seconds": round(float(row["elapsed_sec"]), 2),
+                }
+                for row in history
+            ]
+        )
+        st.dataframe(summary, use_container_width=True, hide_index=True)
+        latest = history[0]
+        if latest.get("output"):
+            st.code(str(latest["output"])[-12000:], language="text")
+
+
+def _overview_page(dataset_text: str, model_dir_text: str, hil_report_text: str) -> None:
+    st.subheader("Workspace readiness")
+    dataset = Path(dataset_text)
+    model_dir = Path(model_dir_text)
+    hil_report = Path(hil_report_text)
+    inventory = artifact_inventory(dataset, model_dir, hil_report)
+    ready = {item.label: item.exists for item in inventory}
+
+    metrics = st.columns(4)
+    metrics[0].metric("Dataset", "Ready" if ready.get("Dataset") else "Missing")
+    metrics[1].metric("Inverse model", "Ready" if ready.get("Tandem checkpoint") else "Missing")
+    edge_ready = ready.get("INT8 denoiser", False) and ready.get("INT8 RI predictor", False)
+    metrics[2].metric("Edge INT8", "Ready" if edge_ready else "Missing")
+    metrics[3].metric("HIL evidence", "Ready" if ready.get("HIL report") else "Not run")
+
+    st.markdown("#### Artifact inventory")
+    rows = []
+    for item in inventory:
+        rows.append(
+            {
+                "Artifact": item.label,
+                "State": "Ready" if item.exists else "Missing",
+                "Path": item.path,
+                "Size": human_bytes(item.size_bytes) if item.exists else "—",
+                "Modified (UTC)": item.modified_utc or "—",
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.markdown("#### Capability matrix")
+    capabilities = pd.DataFrame(capability_inventory())
+    capabilities["status"] = capabilities["available"].map({True: "Available", False: "Not installed"})
+    st.dataframe(
+        capabilities[["capability", "status", "module", "required_for_dashboard"]],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    left, right = st.columns([1.15, 1.0])
+    with left:
+        st.markdown("#### Recommended workflow")
+        st.markdown(
+            """
+            1. **Generate Data** — create the fixed-geometry RI sweep dataset.  
+            2. **Train Inverse** — train the tandem model and export ONNX.  
+            3. **Train Edge** — train denoiser/RI predictor and export TFLite.  
+            4. **Pipeline & Streaming** — validate the complete A → B → C flow.  
+            5. **HIL Lab** — benchmark mock, serial, or socket hardware.  
+            6. **Research Design / Physics Gate** — create calibrated designs and verification evidence.
+            """
+        )
+    with right:
+        st.markdown("#### Execution model")
+        st.markdown(
+            '<div class="spr-note">Training and benchmark jobs run in isolated child Python processes. '
+            "This keeps TensorFlow/PyTorch runtime state away from the Streamlit server while preserving the exact same virtual environment and project code.</div>",
+            unsafe_allow_html=True,
+        )
+    _render_task_history()
+
+
+def _data_training_page(dataset_text: str, model_dir_text: str) -> None:
+    st.subheader("Data generation & model training")
+    generate_tab, inverse_tab, edge_tab = st.tabs(["Generate Data", "Train Inverse", "Train Edge"])
+
+    with generate_tab:
+        st.caption("Generate synthetic PCF-SPR spectra with a fixed geometry and refractive-index sweep.")
+        with st.form("generate_data_form"):
+            a, b, c = st.columns(3)
+            samples = a.number_input("Base geometries", min_value=1, max_value=100000, value=100, step=10)
+            wavelengths = b.number_input("Wavelength samples", min_value=32, max_value=8192, value=256, step=32)
+            seed = c.number_input("Random seed", min_value=0, max_value=2_147_483_647, value=7, step=1)
+            output = st.text_input("Output dataset", value=dataset_text)
+            submitted = st.form_submit_button("Generate dataset", type="primary", use_container_width=True)
+        if submitted:
+            _run_operation(
+                "Synthetic data generation",
+                "generate-data",
+                ["--samples", samples, "--wavelengths", wavelengths, "--seed", seed, "--out", output],
+            )
+
+    with inverse_tab:
+        st.caption("Train the physics-conditioned tandem inverse model and export an ONNX design model.")
+        with st.form("inverse_training_form"):
+            data = st.text_input("Training dataset", value=dataset_text, key="inverse_data")
+            a, b, c = st.columns(3)
+            epochs = a.number_input("Epochs", min_value=1, max_value=10000, value=100, step=10)
+            batch_size = b.number_input("Batch size", min_value=1, max_value=4096, value=64, step=16)
+            device = c.selectbox("Device", ["auto", "cpu", "cuda"], index=0)
+            d, e, f = st.columns(3)
+            lr = d.number_input("Learning rate", min_value=0.000001, max_value=1.0, value=0.001, format="%.6f")
+            alpha = e.number_input("Alpha", min_value=0.0, value=1.0, step=0.1)
+            beta = f.number_input("Beta", min_value=0.0, value=1.0, step=0.1)
+            g, h = st.columns(2)
+            dispersion_weight = g.number_input("Dispersion weight", min_value=0.0, value=0.0, step=0.01)
+            train_seed = h.number_input("Training seed", min_value=0, max_value=2_147_483_647, value=7, step=1)
+            advanced_schedule = st.checkbox("Use separate forward/inverse epoch schedule")
+            forward_epochs = inverse_epochs = None
+            if advanced_schedule:
+                s1, s2 = st.columns(2)
+                forward_epochs = s1.number_input("Forward epochs", min_value=1, max_value=10000, value=100, step=10)
+                inverse_epochs = s2.number_input("Inverse epochs", min_value=1, max_value=10000, value=100, step=10)
+            checkpoint = st.text_input("Checkpoint output", value=str(Path(model_dir_text) / "tandem.pt"))
+            onnx = st.text_input("ONNX output", value=str(Path(model_dir_text) / "inverse_pcf_spr.onnx"))
+            submitted = st.form_submit_button("Train inverse model", type="primary", use_container_width=True)
+        if submitted:
+            args: list[object] = [
+                "--data", data,
+                "--epochs", epochs,
+                "--batch-size", batch_size,
+                "--lr", lr,
+                "--device", device,
+                "--alpha", alpha,
+                "--beta", beta,
+                "--dispersion-weight", dispersion_weight,
+                "--seed", train_seed,
+                "--checkpoint", checkpoint,
+                "--export-onnx", onnx,
+            ]
+            if advanced_schedule and forward_epochs is not None and inverse_epochs is not None:
+                args.extend(["--forward-epochs", forward_epochs, "--inverse-epochs", inverse_epochs])
+            _run_operation("Tandem inverse training", "train-inverse", [str(value) for value in args])
+
+    with edge_tab:
+        st.caption("Train the spectral denoiser and refractive-index predictor, with optional quantized TFLite export.")
+        with st.form("edge_training_form"):
+            data = st.text_input("Training dataset", value=dataset_text, key="edge_data")
+            a, b, c = st.columns(3)
+            epochs = a.number_input("Epochs", min_value=1, max_value=10000, value=50, step=10, key="edge_epochs")
+            batch_size = b.number_input("Batch size", min_value=1, max_value=4096, value=64, step=16, key="edge_batch")
+            device = c.selectbox("Device", ["auto", "cpu", "gpu"], index=0, key="edge_device")
+            d, e = st.columns(2)
+            seed = d.number_input("Seed", min_value=0, max_value=2_147_483_647, value=7, step=1, key="edge_seed")
+            quantize = e.checkbox("Export quantized TFLite", value=True)
+            export_dir = st.text_input("Model output directory", value=model_dir_text)
+            submitted = st.form_submit_button("Train edge models", type="primary", use_container_width=True)
+        if submitted:
+            args = [
+                "--data", data,
+                "--epochs", epochs,
+                "--batch-size", batch_size,
+                "--device", device,
+                "--seed", seed,
+                "--export-dir", export_dir,
+            ]
+            if quantize:
+                args.append("--quantize")
+            _run_operation("Edge model training", "train-edge", [str(value) for value in args])
+
+    _render_task_history()
+
+
+def _pipeline_streaming_page(dataset_text: str, model_dir_text: str) -> None:
+    st.subheader("End-to-end pipeline & streaming benchmark")
+    pipeline_tab, streaming_tab = st.tabs(["Full Pipeline", "Streaming Benchmark"])
+
+    with pipeline_tab:
+        st.caption("Run dataset generation → tandem inverse model → edge models → quantized streaming benchmark.")
+        with st.form("pipeline_form"):
+            a, b, c = st.columns(3)
+            samples = a.number_input("Base geometries", min_value=1, max_value=100000, value=100, step=10, key="pipe_samples")
+            wavelengths = b.number_input("Wavelength samples", min_value=32, max_value=8192, value=256, step=32, key="pipe_wavelengths")
+            seed = c.number_input("Seed", min_value=0, max_value=2_147_483_647, value=7, step=1, key="pipe_seed")
+            d, e, f = st.columns(3)
+            inverse_epochs = d.number_input("Inverse epochs", min_value=1, max_value=10000, value=100, step=10)
+            edge_epochs = e.number_input("Edge epochs", min_value=1, max_value=10000, value=50, step=10)
+            batch_size = f.number_input("Batch size", min_value=1, max_value=4096, value=64, step=16, key="pipe_batch")
+            g, h = st.columns(2)
+            device = g.selectbox("Inverse device", ["auto", "cpu", "cuda"], index=0)
+            edge_device = h.selectbox("Edge device", ["auto", "cpu", "gpu"], index=0)
+            data = st.text_input("Dataset", value=dataset_text, key="pipe_data")
+            export_dir = st.text_input("Model output directory", value=model_dir_text, key="pipe_models")
+            i, j, k = st.columns(3)
+            duration = i.number_input("Streaming seconds", min_value=0.1, max_value=3600.0, value=10.0, step=1.0)
+            noise = j.number_input("Noise std", min_value=0.0, max_value=2.0, value=0.08, step=0.01)
+            drift = k.number_input("Drift std", min_value=0.0, max_value=2.0, value=0.03, step=0.01)
+            dispersion_weight = st.number_input("Dispersion weight", min_value=0.0, value=0.0, step=0.01, key="pipe_dispersion")
+            submitted = st.form_submit_button("Run complete pipeline", type="primary", use_container_width=True)
+        if submitted:
+            _run_operation(
+                "Full A → B → C pipeline",
+                "run-pipeline",
+                [
+                    "--samples", str(samples),
+                    "--wavelengths", str(wavelengths),
+                    "--seed", str(seed),
+                    "--data", data,
+                    "--export-dir", export_dir,
+                    "--inverse-epochs", str(inverse_epochs),
+                    "--edge-epochs", str(edge_epochs),
+                    "--batch-size", str(batch_size),
+                    "--device", device,
+                    "--dispersion-weight", str(dispersion_weight),
+                    "--edge-device", edge_device,
+                    "--duration-sec", str(duration),
+                    "--noise-std", str(noise),
+                    "--drift-std", str(drift),
+                ],
+            )
+
+    with streaming_tab:
+        st.caption("Benchmark the exported quantized denoiser and RI predictor against a noisy spectrum stream.")
+        with st.form("streaming_form"):
+            data = st.text_input("Dataset", value=dataset_text, key="stream_data")
+            tflite_dir = st.text_input("TFLite directory", value=model_dir_text)
+            a, b, c = st.columns(3)
+            duration = a.number_input("Duration (s)", min_value=0.1, max_value=3600.0, value=10.0, step=1.0, key="stream_duration")
+            noise = b.number_input("Noise std", min_value=0.0, max_value=2.0, value=0.08, step=0.01, key="stream_noise")
+            drift = c.number_input("Drift std", min_value=0.0, max_value=2.0, value=0.03, step=0.01, key="stream_drift")
+            submitted = st.form_submit_button("Run streaming benchmark", type="primary", use_container_width=True)
+        if submitted:
+            _run_operation(
+                "Quantized streaming benchmark",
+                "simulate-stream",
+                [
+                    "--data", data,
+                    "--tflite-dir", tflite_dir,
+                    "--duration-sec", str(duration),
+                    "--noise-std", str(noise),
+                    "--drift-std", str(drift),
+                ],
+            )
+
+    _render_task_history()
+
+
+def _hil_page(model_dir_text: str, hil_report_text: str) -> None:
+    st.subheader("Hardware-in-the-loop laboratory")
+    st.caption("Benchmark quantized edge inference with mock, serial, or socket transport and optional thermal-drift injection.")
+    with st.form("hil_form"):
+        protocol = st.radio("Transport", ["mock", "serial", "socket"], horizontal=True)
+        tflite_dir = st.text_input("TFLite directory", value=model_dir_text)
+        report = st.text_input("Benchmark report", value=hil_report_text)
+        a, b, c = st.columns(3)
+        duration = a.number_input("Duration (s)", min_value=0.1, max_value=86400.0, value=30.0, step=5.0)
+        fps = b.number_input("Target FPS", min_value=0.1, max_value=10000.0, value=30.0, step=1.0)
+        buffer_size = c.number_input("Buffer size", min_value=1, max_value=65536, value=256, step=32)
+        d, e, f = st.columns(3)
+        samples = d.number_input("Synthetic geometries", min_value=1, max_value=100000, value=256, step=32)
+        wavelengths = e.number_input("Wavelength samples", min_value=32, max_value=8192, value=256, step=32)
+        seed = f.number_input("Seed", min_value=0, max_value=2_147_483_647, value=23, step=1)
+        inject_drift = st.checkbox("Inject thermal drift", value=False)
+        serial_port = ""
+        baudrate = 115200
+        socket_host = "127.0.0.1"
+        socket_port = 9000
+        if protocol == "serial":
+            p1, p2 = st.columns(2)
+            serial_port = p1.text_input("Serial port", value="COM3")
+            baudrate = p2.number_input("Baudrate", min_value=1200, max_value=4_000_000, value=115200, step=9600)
+        elif protocol == "socket":
+            p1, p2 = st.columns(2)
+            socket_host = p1.text_input("Socket host", value="127.0.0.1")
+            socket_port = p2.number_input("Socket port", min_value=1, max_value=65535, value=9000, step=1)
+        submitted = st.form_submit_button("Run HIL benchmark", type="primary", use_container_width=True)
+
+    if submitted:
+        args = [
+            "--tflite-dir", tflite_dir,
+            "--duration", str(duration),
+            "--report", report,
+            "--protocol", protocol,
+            "--fps", str(fps),
+            "--samples", str(samples),
+            "--wavelengths", str(wavelengths),
+            "--seed", str(seed),
+            "--buffer-size", str(buffer_size),
+        ]
+        if inject_drift:
+            args.append("--inject-thermal-drift")
+        if protocol == "serial":
+            args.extend(["--serial-port", serial_port, "--baudrate", str(baudrate)])
+        elif protocol == "socket":
+            args.extend(["--socket-host", socket_host, "--socket-port", str(socket_port)])
+        _run_operation("HIL benchmark", "hil-benchmark", args)
+
+    report_path = _project_path(report if "report" in locals() else hil_report_text)
+    if report_path.exists():
+        st.markdown("#### Latest HIL report")
+        try:
+            st.json(json.loads(report_path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            st.warning(f"Could not read {report_path}: {exc}")
+    _render_task_history()
+
+
+def _design_tab(checkpoint_text: str, reference_text: str, output_root: Path, target: pd.DataFrame) -> None:
     st.subheader("AI inverse design")
     st.caption(
         "Generates a latent candidate population, applies fabrication projection, forward-ensemble/conformal "
@@ -122,12 +535,7 @@ def _design_tab(
         st.json(result.calibration)
 
 
-def _physics_tab(
-    checkpoint_text: str,
-    reference_text: str,
-    output_root: Path,
-    target: pd.DataFrame,
-) -> None:
+def _physics_tab(checkpoint_text: str, reference_text: str, output_root: Path, target: pd.DataFrame) -> None:
     st.subheader("Physics verification gate")
     result = st.session_state.get("design_result")
     if result is None:
@@ -229,7 +637,7 @@ def _evidence_tab(output_root: Path) -> None:
     defaults = {
         "Scientific validation JSON": output_root.parent / "validation" / "summary.json",
         "XAI attribution CSV": output_root.parent / "feature_attribution.csv",
-        "Hardware benchmark JSON": output_root.parent / "hardware" / "benchmark.json",
+        "Hardware benchmark JSON": PROJECT_ROOT / "reports" / "phase4_hil_benchmark.json",
     }
     evidence_hashes: dict[str, str] = {}
     for label, default in defaults.items():
@@ -288,47 +696,81 @@ def _report_tab(output_root: Path, target: pd.DataFrame) -> None:
 
 def main() -> None:
     st.set_page_config(
-        page_title="CyberPhotonics-SPR Research Dashboard",
-        page_icon="🔬",
+        page_title="CyberPhotonics-SPR Control Center",
+        page_icon="◈",
         layout="wide",
+        initial_sidebar_state="expanded",
     )
-    st.title("CyberPhotonics-SPR")
-    st.caption("AI inverse design → exact-candidate physics gate → spectra → edge/XAI evidence → reproducible report")
-    st.warning(
-        "Evidence rule: synthetic backend results validate software flow only. "
-        "Physical simulation claims require a verified COMSOL model/configuration; experimental claims require real sensor data."
-    )
+    _inject_theme()
+    _hero()
 
     with st.sidebar:
-        st.header("Research workspace")
-        checkpoint_text = st.text_input("Tandem/ensemble checkpoint", value="models/tandem_ensemble.pt")
-        reference_text = st.text_input("Reference/base dataset", value="data/processed/training.parquet")
-        output_text = st.text_input("Dashboard output directory", value="outputs/dashboard")
+        st.markdown("### Control Center")
+        page = st.radio("Workspace", DASHBOARD_PAGES, label_visibility="collapsed", key="dashboard_page")
         st.divider()
-        st.subheader("Target")
-        sensitivity = st.number_input("Sensitivity (nm/RIU)", value=800.0, step=10.0)
-        fom = st.number_input("FOM (/RIU)", value=20.0, step=0.5)
-        lambda_res = st.number_input("Resonance λ (nm)", value=750.0, step=1.0)
-        analyte_ri = st.number_input("Analyte RI", min_value=1.000001, max_value=1.999999, value=1.37, step=0.001)
+        st.markdown("#### Project paths")
+        dataset_text = st.text_input("Dataset", value="data/processed/synthetic.parquet")
+        model_dir_text = st.text_input("Model directory", value="models")
+        output_text = st.text_input("Research outputs", value="outputs/dashboard")
+        hil_report_text = st.text_input("HIL report", value="reports/phase4_hil_benchmark.json")
+        st.caption(f"Project root: {PROJECT_ROOT}")
+        if page in {"Research Design", "Physics Gate", "Evidence & Report"}:
+            st.divider()
+            st.markdown("#### Research target")
+            sensitivity = st.number_input("Sensitivity (nm/RIU)", value=800.0, step=10.0)
+            fom = st.number_input("FOM (/RIU)", value=20.0, step=0.5)
+            lambda_res = st.number_input("Resonance λ (nm)", value=750.0, step=1.0)
+            analyte_ri = st.number_input(
+                "Analyte RI",
+                min_value=1.000001,
+                max_value=1.999999,
+                value=1.37,
+                step=0.001,
+            )
+        else:
+            sensitivity, fom, lambda_res, analyte_ri = 800.0, 20.0, 750.0, 1.37
 
-    try:
-        target = target_frame(sensitivity, fom, lambda_res, analyte_ri)
-    except ValueError as exc:
-        st.error(str(exc))
-        return
-    output_root = Path(output_text).expanduser()
+    dataset_path = _project_path(dataset_text)
+    model_dir_path = _project_path(model_dir_text)
+    output_root = _project_path(output_text)
+    hil_report_path = _project_path(hil_report_text)
 
-    design, physics, evidence, report = st.tabs(
-        ["1 · Design Studio", "2 · Physics Gate", "3 · Edge / XAI Evidence", "4 · Report"]
-    )
-    with design:
-        _design_tab(checkpoint_text, reference_text, output_root, target)
-    with physics:
-        _physics_tab(checkpoint_text, reference_text, output_root, target)
-    with evidence:
-        _evidence_tab(output_root)
-    with report:
-        _report_tab(output_root, target)
+    if page == "Overview":
+        _overview_page(str(dataset_path), str(model_dir_path), str(hil_report_path))
+    elif page == "Data & Training":
+        _data_training_page(str(dataset_path), str(model_dir_path))
+    elif page == "Pipeline & Streaming":
+        _pipeline_streaming_page(str(dataset_path), str(model_dir_path))
+    elif page == "HIL Lab":
+        _hil_page(str(model_dir_path), str(hil_report_path))
+    else:
+        st.warning(
+            "Evidence boundary: synthetic results validate the software and analytical flow only. "
+            "Physical simulation claims require a verified COMSOL model/configuration, and experimental claims require real sensor data."
+        )
+        try:
+            target = target_frame(sensitivity, fom, lambda_res, analyte_ri)
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        checkpoint_text = str(model_dir_path / "tandem.pt")
+        reference_text = str(dataset_path)
+        if page == "Research Design":
+            with st.expander("Research model inputs", expanded=False):
+                checkpoint_text = st.text_input("Tandem/ensemble checkpoint", value=checkpoint_text)
+                reference_text = st.text_input("Reference dataset", value=reference_text)
+            _design_tab(checkpoint_text, reference_text, output_root, target)
+        elif page == "Physics Gate":
+            with st.expander("Physics model inputs", expanded=False):
+                checkpoint_text = st.text_input("Tandem/ensemble checkpoint", value=checkpoint_text, key="physics_checkpoint")
+                reference_text = st.text_input("Base dataset", value=reference_text, key="physics_reference")
+            _physics_tab(checkpoint_text, reference_text, output_root, target)
+        elif page == "Evidence & Report":
+            evidence_tab, report_tab = st.tabs(["Evidence Registry", "Research Report"])
+            with evidence_tab:
+                _evidence_tab(output_root)
+            with report_tab:
+                _report_tab(output_root, target)
 
 
 if __name__ == "__main__":
