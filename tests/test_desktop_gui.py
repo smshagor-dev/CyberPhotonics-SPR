@@ -15,10 +15,14 @@ def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
-def test_native_control_center_constructs_without_web_runtime() -> None:
-    _app()
+def test_native_control_center_renders_without_web_runtime() -> None:
+    app = _app()
     window = ControlCenter()
     try:
+        window.resize(1536, 1024)
+        window.show()
+        app.processEvents()
+
         assert APP_TITLE in window.windowTitle()
         assert window.minimumWidth() >= 1100
         assert window.sidebar is not None
@@ -32,8 +36,14 @@ def test_native_control_center_constructs_without_web_runtime() -> None:
         assert any("Run" in value and "Pipeline" in value for value in labels)
         assert any("Verify" in value and "Physics" in value for value in labels)
         assert any("Generate" in value and "Report" in value for value in labels)
+
+        rendered = window.grab()
+        assert not rendered.isNull()
+        assert rendered.width() == 1536
+        assert rendered.height() == 1024
     finally:
         window.close()
+        app.processEvents()
 
 
 def test_operation_forms_are_native_qt_dialogs() -> None:
