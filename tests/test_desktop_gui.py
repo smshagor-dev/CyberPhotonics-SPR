@@ -4,6 +4,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from sprpcf.desktop import ResponsiveControlCenter
@@ -11,6 +12,8 @@ from sprpcf.desktop.app import APP_TITLE, ControlCenter
 from sprpcf.desktop.dialogs import generate_data_form, pipeline_form
 from sprpcf.desktop.fit import ACTION_META, QUICK_ACTIONS
 from sprpcf.desktop.icons import action_icon
+from sprpcf.desktop.theme import DARK_THEME, LIGHT_THEME, palette_for, stylesheet_for
+from sprpcf.desktop.themed_widgets import ThemedSensorgramChart
 from sprpcf.desktop.widgets import StatCard
 
 
@@ -137,7 +140,77 @@ def test_back_button_returns_to_overview_and_theme_toggle_persists() -> None:
 
         window._toggle_theme()
         assert window._theme_mode() != original_theme
+        assert window._theme_mode() in {"dark", "light"}
         assert "Switch to" in window._top_theme_button.toolTip()
+    finally:
+        window._ui_settings.setValue("theme", original_theme)
+        window._ui_settings.sync()
+        window.close()
+        app.processEvents()
+
+
+def test_light_mode_is_true_white_and_recolors_custom_charts() -> None:
+    app = _app()
+    window = ResponsiveControlCenter()
+    original_theme = window._theme_mode()
+    try:
+        window._ui_settings.setValue("theme", "light")
+        window._ui_settings.sync()
+        window._apply_preferences()
+        window.resize(1200, 800)
+        window.show()
+        app.processEvents()
+
+        assert window._theme_mode() == "light"
+        assert window.property("theme") == "light"
+        assert palette_for("light").window == "#ffffff"
+        assert app.palette().color(QPalette.ColorRole.Window).name() == "#ffffff"
+        assert isinstance(window.sensor_chart, ThemedSensorgramChart)
+        chart = window.sensor_chart.grab().toImage()
+        assert chart.pixelColor(2, 2).name() == LIGHT_THEME.plot_bg
+        assert LIGHT_THEME.primary == "#0b2a4a"
+        assert "background: #ffffff" in stylesheet_for("light")
+    finally:
+        window._ui_settings.setValue("theme", original_theme)
+        window._ui_settings.sync()
+        window.close()
+        app.processEvents()
+
+
+def test_dark_mode_is_deep_navy_and_not_light_blue() -> None:
+    app = _app()
+    window = ResponsiveControlCenter()
+    original_theme = window._theme_mode()
+    try:
+        window._ui_settings.setValue("theme", "dark")
+        window._ui_settings.sync()
+        window._apply_preferences()
+        window.show()
+        app.processEvents()
+
+        assert window._theme_mode() == "dark"
+        assert DARK_THEME.window == "#050c15"
+        assert DARK_THEME.panel == "#0b1622"
+        assert app.palette().color(QPalette.ColorRole.Window).name() == DARK_THEME.window
+        chart = window.sensor_chart.grab().toImage()
+        assert chart.pixelColor(2, 2).name() == DARK_THEME.plot_bg
+    finally:
+        window._ui_settings.setValue("theme", original_theme)
+        window._ui_settings.sync()
+        window.close()
+        app.processEvents()
+
+
+def test_legacy_high_contrast_setting_migrates_to_supported_dark_mode() -> None:
+    app = _app()
+    window = ResponsiveControlCenter()
+    original_theme = window._theme_mode()
+    try:
+        window._ui_settings.setValue("theme", "high-contrast")
+        window._ui_settings.sync()
+        assert window._theme_mode() == "dark"
+        window._migrate_theme_setting()
+        assert str(window._ui_settings.value("theme")) == "dark"
     finally:
         window._ui_settings.setValue("theme", original_theme)
         window._ui_settings.sync()
