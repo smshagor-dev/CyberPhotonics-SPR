@@ -38,10 +38,19 @@ jobs:
       - name: Compile
         run: python -m compileall -q src main.py scripts
       - name: Verify critical imports
-        run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.publication.evidence; import sprpcf.publication.submission; import sprpcf.simulation.comsol_sweep"
+        run: python -c "import main; import sprpcf.ml.active_learning; import sprpcf.ml.explainability; import sprpcf.ml.export_onnx; import sprpcf.publication.evidence; import sprpcf.publication.submission; import sprpcf.simulation.comsol_sweep; import sprpcf.utils.readiness"
       - name: Validate research release metadata
         if: matrix.python-version == '3.11'
         run: python scripts/verify_release.py --expected-version 1.0.0rc1
+      - name: Whole-system release readiness gate
+        if: matrix.python-version == '3.11'
+        run: |
+          python scripts/check_system_readiness.py \
+            --profile release \
+            --expected-version 1.0.0rc1 \
+            --json-out /tmp/system-readiness.json \
+            --markdown-out /tmp/system-readiness.md \
+            --strict
       - name: Reviewer package CLI smoke test
         if: matrix.python-version == '3.11'
         run: |
@@ -78,6 +87,25 @@ jobs:
       - name: Build wheel and source distribution
         if: matrix.python-version == '3.11'
         run: python -m build
+      - name: Smoke-test built wheel in isolated environment
+        if: matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          wheel=$(find dist -maxdepth 1 -name 'sprpcf-*.whl' -print -quit)
+          test -n "$wheel"
+          python scripts/smoke_test_wheel.py "$wheel" \
+            --expected-version 1.0.0rc1 \
+            --json-out /tmp/wheel-smoke.json
+      - name: Upload system readiness evidence
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-readiness-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            /tmp/system-readiness.json
+            /tmp/system-readiness.md
+            /tmp/wheel-smoke.json
       - name: Core tests (warnings are errors)
         run: pytest -q -W error --ignore=tests/test_edge_deployment.py --ignore=tests/test_full_pipeline.py
 

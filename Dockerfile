@@ -13,4 +13,4 @@ RUN python -m pip install --upgrade pip \
     && pip install "torch>=2.1" --index-url https://download.pytorch.org/whl/cpu \
     && if [ -n "$INSTALL_EXTRAS" ]; then pip install -e ".[${INSTALL_EXTRAS}]"; else pip install -e .; fi
 
-CMD ["python", "scripts/verify_release.py"]
+CMD ["python", "scripts/check_system_readiness.py", "--profile", "release", "--expected-version", "1.0.0rc1", "--strict"]

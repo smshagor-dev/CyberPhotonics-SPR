@@ -1,0 +1,21 @@
+# Example COMSOL sweep contract for CyberPhotonics-SPR.
+# Replace expression/study names with the exact names used by your validated .mph model.
+# Do not report results until units, materials, mesh, boundaries, and expressions are independently checked.
+
+study: std1
+wavelength_expression: lambda
+loss_expression: loss
+
+# Scaling from the COMSOL expression output into the framework contract.
+# Use 1.0 when wavelength_expression already returns nm; use 1.0e9 when it returns meters.
+wavelength_scale_to_nm: 1.0
+# Use 1.0 when loss_expression already returns dB/cm; otherwise set the physically correct conversion.
+loss_scale_to_db_per_cm: 1.0
+expected_wavelength_nm: [300.0, 2500.0]
+
+sweep:
+  d_over_lambda: [0.40, 0.50]
+  pitch_um: [1.6, 2.0]
+  metal_thickness_nm: [40.0, 50.0]
+  channel_radius_um: [0.60]
+  analyte_ri: [1.33, 1.35, 1.37, 1.39, 1.41]

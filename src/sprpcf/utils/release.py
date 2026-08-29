@@ -19,12 +19,16 @@ REQUIRED_RELEASE_FILES = (
     ".devcontainer/devcontainer.json",
     ".github/release.yml",
     "RELEASE_CANDIDATE.md",
+    "configs/comsol_sweep.example.yaml",
     "docs/REPRODUCIBILITY.md",
     "docs/PUBLICATION_REVIEWER_PACKAGE.md",
     "docs/SUBMISSION_PACKAGE.md",
+    "docs/V1_SYSTEM_READINESS.md",
     "scripts/build_reviewer_package.py",
     "scripts/build_submission_package.py",
+    "scripts/check_system_readiness.py",
     "scripts/run_publication_demo.py",
+    "scripts/smoke_test_wheel.py",
     "pyproject.toml",
 )
 RUNTIME_PREFIXES = ("data/raw/", "data/processed/", "models/", "outputs/")

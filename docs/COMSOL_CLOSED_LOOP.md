@@ -48,6 +48,16 @@ sensitivity_nm_per_riu,fom_per_riu,lambda_res_nm,analyte_ri
 820.0,18.5,615.0,1.37
 ```
 
+## COMSOL configuration template
+
+The repository includes a tracked template at:
+
+```text
+configs/comsol_sweep.example.yaml
+```
+
+Copy it for the actual campaign and replace the study/expression names and unit scaling with the exact contract of the validated `.mph` model. The template is not evidence that a specific COMSOL model, material assignment, mesh, boundary condition, or unit convention is correct.
+
 ## Real COMSOL iteration
 
 ```powershell
@@ -57,7 +67,7 @@ python scripts/run_comsol_closed_loop.py `
   --base-data data/processed/training.parquet `
   --backend comsol `
   --comsol-model path\to\pcf_spr.mph `
-  --comsol-config sweep.example.yaml `
+  --comsol-config configs/comsol_sweep.example.yaml `
   --out outputs/closed_loop/iteration_001 `
   --ri-span 0.04 `
   --ri-points 5 `
@@ -111,7 +121,7 @@ python scripts/run_comsol_closed_loop.py `
   --base-data data/processed/training.parquet `
   --backend comsol `
   --comsol-model path\to\pcf_spr.mph `
-  --comsol-config sweep.example.yaml `
+  --comsol-config configs/comsol_sweep.example.yaml `
   --out outputs/closed_loop/iteration_001 `
   --retrain `
   --retrain-epochs 50 `
