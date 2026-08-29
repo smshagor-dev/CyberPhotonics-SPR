@@ -17,6 +17,6 @@ pyyaml>=6.0
 pytest>=7.4
 psutil>=5.9
 streamlit>=1.32
-plotly>=5.18
+plotly>=7.0.0
 shap>=0.45; python_version < "3.14"
 ruff>=0.6
