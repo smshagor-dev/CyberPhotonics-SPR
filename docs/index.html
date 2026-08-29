@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#081525">
+  <meta name="description" content="CyberPhotonics-SPR: publication-grade PCF-SPR inverse design, edge AI, evidence qualification, and research deployment framework.">
+  <title>CyberPhotonics-SPR</title>
+  <link rel="stylesheet" href="./site.css">
+</head>
+<body>
+  <header class="nav-shell">
+    <nav class="nav" aria-label="Primary navigation">
+      <a class="brand" href="./" aria-label="CyberPhotonics-SPR home">
+        <span class="brand-mark" aria-hidden="true">◇</span>
+        <span>CyberPhotonics-SPR</span>
+      </a>
+      <div class="nav-links">
+        <a href="#platform">Platform</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#research-integrity">Evidence</a>
+        <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR">GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">PCF-SPR · Physics-informed inverse design · Edge AI</p>
+        <h1>Cyber-Physical Photonics from target specification to deployable evidence.</h1>
+        <p class="lead">
+          CyberPhotonics-SPR is a publication-oriented research and engineering framework for photonic-crystal-fiber surface-plasmon-resonance sensors. It connects scientific simulation, tandem inverse design, uncertainty-aware optimization, numerical verification, real-time INT8 edge inference, hardware benchmarking, and evidence-qualified publication tooling.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://github.com/smshagor-dev/CyberPhotonics-SPR">View source</a>
+          <a class="button secondary" href="https://github.com/smshagor-dev/CyberPhotonics-SPR/releases/tag/v1.0.0rc1">Release candidate</a>
+          <a class="button ghost" href="https://github.com/smshagor-dev/CyberPhotonics-SPR/blob/main/docs/V1_SYSTEM_READINESS.md">Readiness contract</a>
+        </div>
+        <div class="status-row" aria-label="Project status">
+          <span><strong>Python</strong> 3.10-3.13</span>
+          <span><strong>Release</strong> v1.0.0rc1</span>
+          <span><strong>License</strong> Apache-2.0</span>
+          <span><strong>UI</strong> Native Qt</span>
+        </div>
+      </div>
+      <aside class="hero-panel" aria-label="Research pipeline">
+        <p class="panel-kicker">Research path</p>
+        <ol class="pipeline-list">
+          <li><span>A</span><div><strong>Simulation & spectra</strong><small>Synthetic or qualified COMSOL evidence</small></div></li>
+          <li><span>B</span><div><strong>Inverse design</strong><small>Tandem model, constraints, uncertainty, OOD</small></div></li>
+          <li><span>C</span><div><strong>Physics gate</strong><small>Exact selected candidate verification</small></div></li>
+          <li><span>D</span><div><strong>Edge deployment</strong><small>INT8 TFLite/LiteRT streaming and HIL</small></div></li>
+          <li><span>E</span><div><strong>Evidence & publication</strong><small>Hashes, provenance, reviewer/submission bundles</small></div></li>
+        </ol>
+      </aside>
+    </section>
+
+    <section id="platform" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Platform</p>
+        <h2>One research system, not disconnected scripts.</h2>
+        <p>The same backend powers CLI automation and the native desktop control center, preserving reproducibility while keeping day-to-day operation accessible.</p>
+      </div>
+      <div class="grid four">
+        <article class="card">
+          <span class="card-icon">⌁</span>
+          <h3>Inverse design</h3>
+          <p>Conditioned tandem models, fabrication projection, calibrated confidence, OOD diagnostics, Pareto ranking, and ONNX export.</p>
+        </article>
+        <article class="card">
+          <span class="card-icon">◈</span>
+          <h3>Edge intelligence</h3>
+          <p>Spectral denoising, refractive-index prediction, quantized TFLite/LiteRT inference, streaming metrics, and HIL benchmarking.</p>
+        </article>
+        <article class="card">
+          <span class="card-icon">▦</span>
+          <h3>Native control center</h3>
+          <p>Responsive PySide6 desktop GUI with true white Light mode, deep-navy Dark mode, live status, training, pipeline, evidence, and report actions.</p>
+        </article>
+        <article class="card">
+          <span class="card-icon">✓</span>
+          <h3>Release evidence</h3>
+          <p>Reviewer packages, submission bundles, checksums, readiness gates, model/dataset cards, and explicit scientific-claim boundaries.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="architecture" class="section split-section">
+      <div class="section-heading compact">
+        <p class="eyebrow">Architecture</p>
+        <h2>Traceable from simulation to publication.</h2>
+        <p>Scientific computation, ML, deployment, evidence qualification, and release tooling are separated into explicit modules so results can be reproduced and audited.</p>
+        <ul class="feature-list">
+          <li>Fixed-geometry RI sweep contracts for sensitivity calculations</li>
+          <li>Closed-loop numerical physics interfaces</li>
+          <li>Evidence-class and SHA-256 provenance checks</li>
+          <li>Large chunked Parquet dataset generation</li>
+          <li>Python 3.10-3.13 CI and isolated wheel smoke tests</li>
+          <li>Optional COMSOL, hardware, XAI, dashboard, ONNX, and edge extras</li>
+        </ul>
+      </div>
+      <figure class="architecture-card">
+        <img src="./assets/cyberphotonics-spr-code-layout.svg" alt="CyberPhotonics-SPR code architecture diagram">
+        <figcaption>Repository architecture and research flow.</figcaption>
+      </figure>
+    </section>
+
+    <section id="research-integrity" class="section evidence">
+      <div class="section-heading">
+        <p class="eyebrow">Evidence boundary</p>
+        <h2>Software readiness is not confused with physical proof.</h2>
+        <p>The framework intentionally distinguishes what the software validates from what requires real numerical or experimental evidence.</p>
+      </div>
+      <div class="grid three">
+        <article class="evidence-card ready">
+          <span>Software</span>
+          <h3>Release-ready path</h3>
+          <p>Core algorithms, packaging, desktop UI, CI, reviewer tooling, edge interfaces, and evidence infrastructure can be validated without fabricated measurements.</p>
+        </article>
+        <article class="evidence-card qualified">
+          <span>Numerical physics</span>
+          <h3>Qualified COMSOL evidence</h3>
+          <p>Physical simulation claims require the actual model/configuration, unit contract, successful sweep points, and provenance hashes.</p>
+        </article>
+        <article class="evidence-card physical">
+          <span>Experimental</span>
+          <h3>Measured evidence</h3>
+          <p>Laboratory and exact-device claims require raw measurements, protocol/calibration metadata, device identity, model identity, and acquisition provenance.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section quickstart">
+      <div>
+        <p class="eyebrow">Quick start</p>
+        <h2>Launch the native research control center.</h2>
+      </div>
+      <pre><code>git clone https://github.com/smshagor-dev/CyberPhotonics-SPR.git
+cd CyberPhotonics-SPR
+python -m venv .venv311
+python -m pip install -e ".[dev,onnx]"
+python -m sprpcf.runtime.doctor
+python main.py</code></pre>
+    </section>
+
+    <section class="section links-section">
+      <h2>Project resources</h2>
+      <div class="resource-links">
+        <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR/blob/main/README.md">README</a>
+        <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR/blob/main/DATASET_CARD.md">Dataset card</a>
+        <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR/blob/main/MODEL_CARD.md">Model card</a>
+        <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR/blob/main/CONTRIBUTING.md">Contributing</a>
+        <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR/blob/main/CITATION.cff">Citation</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div><strong>CyberPhotonics-SPR</strong><span>Publication-oriented cyber-physical photonics research software.</span></div>
+    <a href="https://github.com/smshagor-dev/CyberPhotonics-SPR">GitHub repository</a>
+  </footer>
+</body>
+</html>
