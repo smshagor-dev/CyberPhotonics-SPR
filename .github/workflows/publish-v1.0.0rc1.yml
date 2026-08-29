@@ -6,77 +6,27 @@ on:
       - main
     paths:
       - ".github/workflows/publish-v1.0.0rc1.yml"
-  workflow_run:
-    workflows:
-      - "Research Release Validation"
-    types:
-      - completed
 
 permissions:
   contents: write
-  actions: write
+  actions: read
 
 jobs:
-  create-tag:
-    if: github.event_name == 'push' && github.repository == 'smshagor-dev/CyberPhotonics-SPR'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Verify exact release target and tag
-        shell: bash
-        env:
-          TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
-          RELEASE_TAG: v1.0.0rc1
-        run: |
-          set -euo pipefail
-          git cat-file -e "${TARGET_SHA}^{commit}"
-          version=$(git show "${TARGET_SHA}:pyproject.toml" | sed -n 's/^version = "\([^"]*\)"/\1/p' | head -n1)
-          test "$version" = "1.0.0rc1"
-          git merge-base --is-ancestor "$TARGET_SHA" HEAD
-
-          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" --force
-            resolved=$(git rev-list -n 1 "$RELEASE_TAG")
-            test "$resolved" = "$TARGET_SHA"
-            echo "${RELEASE_TAG} already exists at the expected release target."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$RELEASE_TAG" "$TARGET_SHA" -m "CyberPhotonics-SPR ${RELEASE_TAG}"
-            git push origin "refs/tags/${RELEASE_TAG}"
-          fi
-      - name: Dispatch tag-time release validation
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: v1.0.0rc1
-        run: |
-          set -euo pipefail
-          gh workflow run release-validation.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$RELEASE_TAG"
-          echo "Dispatched Research Release Validation for ${RELEASE_TAG}."
-
   publish-prerelease:
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.name == 'Research Release Validation' &&
-      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_sha == '9da24f4edb292666d1721328e96e2ff2f54abb60'
+    if: github.repository == 'smshagor-dev/CyberPhotonics-SPR'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           ref: 9da24f4edb292666d1721328e96e2ff2f54abb60
           fetch-depth: 0
-      - name: Verify validated tag identity
+      - name: Verify release tag and successful validation
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
           RELEASE_TAG: v1.0.0rc1
+          VALIDATION_RUN_ID: "33235115701"
         run: |
           set -euo pipefail
           git fetch --tags --force
@@ -84,15 +34,25 @@ jobs:
           test "$resolved" = "$TARGET_SHA"
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml | head -n1)
           test "$version" = "1.0.0rc1"
+
+          validation=$(gh run view "$VALIDATION_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json conclusion,event,headSha,status,workflowName)
+          echo "$validation"
+          test "$(jq -r '.workflowName' <<<"$validation")" = "Research Release Validation"
+          test "$(jq -r '.status' <<<"$validation")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$validation")" = "success"
+          test "$(jq -r '.headSha' <<<"$validation")" = "$TARGET_SHA"
+          test "$(jq -r '.event' <<<"$validation")" = "workflow_dispatch"
       - name: Download validated release assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          VALIDATION_RUN_ID: "33235115701"
         run: |
           set -euo pipefail
           mkdir -p release-artifact
-          gh run download "$RUN_ID" \
+          gh run download "$VALIDATION_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name "research-release-v1.0.0rc1" \
             --dir release-artifact
