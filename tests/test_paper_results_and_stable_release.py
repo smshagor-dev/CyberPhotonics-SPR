@@ -163,7 +163,9 @@ def test_stable_promotion_plan_allows_only_version_blocker_on_ready_rc(tmp_path:
         finalization_dir=finalization,
         paper_results_dir=results,
         target_version="1.0.0",
+        require_clean_git=False,
     )
+    assert plan["require_clean_git"] is False
     assert plan["finalization"]["rc_promotion_ready"] is True
     assert plan["ready_for_promotion"] is True
     assert plan["blockers"] == []
