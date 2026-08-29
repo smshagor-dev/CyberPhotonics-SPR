@@ -38,8 +38,11 @@ def validate_experiment_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(row, Mapping):
             raise ValueError(f"spectra[{index}] must be a mapping.")
         path = str(row.get("path") or "").strip()
+        raw_path = str(row.get("raw_path") or "").strip()
         if not path:
             raise ValueError(f"spectra[{index}].path is required.")
+        if not raw_path:
+            raise ValueError(f"spectra[{index}].raw_path is required for raw-to-derived traceability.")
         try:
             analyte_ri = float(row["analyte_ri"])
         except (KeyError, TypeError, ValueError) as exc:
@@ -47,7 +50,9 @@ def validate_experiment_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
         if not np.isfinite(analyte_ri) or not 1.0 < analyte_ri < 2.0:
             raise ValueError(f"spectra[{index}].analyte_ri must be within the physical project range (1, 2).")
         replicate = str(row.get("replicate") or index + 1).strip()
-        normalized.append({"path": path, "analyte_ri": analyte_ri, "replicate": replicate})
+        normalized.append(
+            {"path": path, "raw_path": raw_path, "analyte_ri": analyte_ri, "replicate": replicate}
+        )
 
     unique_ri = sorted({row["analyte_ri"] for row in normalized})
     if len(unique_ri) < 2:
@@ -129,8 +134,8 @@ def analyze_experimental_measurements(
 ) -> dict[str, Any]:
     """Analyze RI-labelled calibrated spectra without qualifying them as physical evidence.
 
-    Qualification remains a separate hash-bound registry action. This function only derives
-    measured-spectrum statistics from files explicitly listed in the experimental manifest.
+    Qualification remains a separate hash-bound registry action. This function derives
+    statistics from calibrated spectra while preserving a raw-file hash for every replicate.
     """
     manifest_file = Path(manifest_path)
     manifest = load_experiment_manifest(manifest_file)
@@ -143,8 +148,11 @@ def analyze_experimental_measurements(
     source_hashes: list[dict[str, str]] = []
     for item in manifest["spectra"]:
         spectrum_path = _resolve(manifest_file, item["path"])
+        raw_path = _resolve(manifest_file, item["raw_path"])
         if not spectrum_path.is_file():
             raise FileNotFoundError(f"Calibrated experimental spectrum not found: {spectrum_path}")
+        if not raw_path.is_file():
+            raise FileNotFoundError(f"Raw experimental spectrum not found: {raw_path}")
         frame = _read_spectrum(spectrum_path)
         wavelength = frame["wavelength_nm"].to_numpy(dtype=float)
         loss = frame["loss_db_per_cm"].to_numpy(dtype=float)
@@ -155,12 +163,20 @@ def analyze_experimental_measurements(
                 "analyte_ri": float(item["analyte_ri"]),
                 "replicate": item["replicate"],
                 "spectrum": str(spectrum_path),
+                "raw_spectrum": str(raw_path),
                 "lambda_res_nm": lambda_res,
                 "peak_loss_db_per_cm": peak_loss,
                 "fwhm_nm": width,
             }
         )
-        source_hashes.append({"path": str(spectrum_path), "sha256": sha256_file(spectrum_path)})
+        source_hashes.append(
+            {
+                "calibrated_path": str(spectrum_path),
+                "calibrated_sha256": sha256_file(spectrum_path),
+                "raw_path": str(raw_path),
+                "raw_sha256": sha256_file(raw_path),
+            }
+        )
 
     replicate_frame = pd.DataFrame(rows).sort_values(["analyte_ri", "replicate"]).reset_index(drop=True)
     grouped = replicate_frame.groupby("analyte_ri", sort=True)
@@ -214,8 +230,9 @@ def analyze_experimental_measurements(
             "repeatability_by_ri": str(repeatability_plot),
         },
         "scientific_boundary": (
-            "These statistics are derived from the listed calibrated spectra. They become evidence for experimental claims "
-            "only when the underlying raw measurements, protocol, and calibration are separately qualified in the evidence registry."
+            "These statistics are derived from calibrated spectra whose raw-source hashes are recorded. They support "
+            "experimental claims only after the corresponding raw measurements, protocol, and calibration are qualified "
+            "in the evidence registry."
         ),
     }
     (out / "experimental_summary.json").write_text(
