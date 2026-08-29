@@ -13,6 +13,7 @@ from typing import Callable, Iterable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MAIN_SCRIPT = PROJECT_ROOT / "main.py"
+SRC_ROOT = PROJECT_ROOT / "src"
 
 
 @dataclass(frozen=True)
@@ -56,12 +57,41 @@ def _normalize_dashboard_arguments(subcommand: str, arguments: Iterable[str]) ->
     return values
 
 
+def _can_import(python_executable: Path | str, module: str) -> bool:
+    command = [str(python_executable), "-c", f"import {module}"]
+    return subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+
+
+def _can_import_all(python_executable: Path | str, modules: Iterable[str]) -> bool:
+    return all(_can_import(python_executable, module) for module in modules)
+
+
+def project_python_executable(required_module: str | Iterable[str] = "sprpcf") -> str:
+    """Return a Python executable that can import the project package."""
+    modules = (required_module,) if isinstance(required_module, str) else tuple(required_module)
+    venv311_python = PROJECT_ROOT / ".venv311" / "Scripts" / "python.exe"
+    if venv311_python.exists() and _can_import_all(venv311_python, modules):
+        return str(venv311_python)
+    if _can_import_all(sys.executable, modules):
+        return sys.executable
+    return sys.executable
+
+
+def project_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(SRC_ROOT) if not pythonpath else f"{SRC_ROOT}{os.pathsep}{pythonpath}"
+    return env
+
+
 def build_cli_command(subcommand: str, arguments: Iterable[str] = ()) -> list[str]:
     """Build a dashboard-to-CLI command without shell interpolation."""
     if not subcommand or subcommand.startswith("-"):
         raise ValueError("subcommand must be a non-empty command name")
     normalized = _normalize_dashboard_arguments(subcommand, arguments)
-    return [sys.executable, "-u", str(MAIN_SCRIPT), subcommand, *normalized]
+    return [project_python_executable(), "-u", str(MAIN_SCRIPT), subcommand, *normalized]
 
 
 def run_cli_task(
@@ -72,9 +102,7 @@ def run_cli_task(
 ) -> TaskResult:
     """Run one orchestrator task in an isolated child process and stream combined output."""
     command = build_cli_command(subcommand, arguments)
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env = project_subprocess_env()
 
     creationflags = 0
     if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):

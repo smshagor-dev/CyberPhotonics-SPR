@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sprpcf.dashboard.operations import PROJECT_ROOT, human_bytes
+from sprpcf.dashboard.operations import PROJECT_ROOT, human_bytes, project_python_executable
 
 from .app import APP_TITLE, DATASET, MODELS, ControlCenter, _label, math_sin
 from .dialogs import FieldSpec, OperationForm
@@ -419,7 +419,7 @@ def large_dataset_form(parent: QWidget | None = None) -> OperationForm:
 
     def command(values: dict[str, object]) -> list[str]:
         return [
-            sys.executable,
+            project_python_executable(),
             "-u",
             "-m",
             "sprpcf.simulation.bigdata",

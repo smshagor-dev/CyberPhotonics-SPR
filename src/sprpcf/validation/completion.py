@@ -4,10 +4,10 @@ import json
 import shlex
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from sprpcf.dashboard.operations import project_python_executable, project_subprocess_env
 from sprpcf.evidence.qualification import (
     qualify_comsol_iteration,
     qualify_device_benchmark,
@@ -136,7 +136,7 @@ def _qualification_command(config: Mapping[str, Any], stage: str) -> str:
 def _comsol_execution_args(config: Mapping[str, Any]) -> list[str]:
     values = config["comsol"]
     return [
-        sys.executable,
+        project_python_executable(),
         "scripts/run_comsol_closed_loop.py",
         "--backend",
         "comsol",
@@ -171,7 +171,7 @@ def run_real_comsol_validation(campaign_dir: str | Path, *, repo_root: str | Pat
         if _is_placeholder(values.get(key)):
             raise ValueError(f"COMSOL campaign value {key!r} is still a placeholder.")
     args = _comsol_execution_args(config)
-    completed = subprocess.run(args, cwd=Path(repo_root), check=False)
+    completed = subprocess.run(args, cwd=Path(repo_root), check=False, env=project_subprocess_env())
     return {"returncode": completed.returncode, "command": args, "ok": completed.returncode == 0}
 
 

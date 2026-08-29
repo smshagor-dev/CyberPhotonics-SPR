@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from sprpcf.ml.dataset import GEOMETRY_COLUMNS
+from sprpcf.dashboard.operations import project_python_executable
 from sprpcf.simulation.dispersion import gold_permittivity_drude_lorentz, silica_refractive_index
 from sprpcf.simulation.metrics import resonance_wavelength
 from sprpcf.simulation.schema import Geometry
@@ -45,27 +46,9 @@ def control_center_path() -> Path:
     return Path(__file__).resolve().parents[1] / "dashboard" / "app.py"
 
 
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
-def _has_streamlit(python_executable: Path | str) -> bool:
-    command = [str(python_executable), "-c", "import streamlit"]
-    return subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
-
-
-def dashboard_python_executable() -> str:
-    if _has_streamlit(sys.executable):
-        return sys.executable
-    venv311_python = project_root() / ".venv311" / "Scripts" / "python.exe"
-    if venv311_python.exists() and _has_streamlit(venv311_python):
-        return str(venv311_python)
-    return sys.executable
-
-
 def build_streamlit_command(port: int = 8501, host: str = "localhost") -> list[str]:
     return [
-        dashboard_python_executable(),
+        project_python_executable(("sprpcf", "streamlit")),
         "-m",
         "streamlit",
         "run",

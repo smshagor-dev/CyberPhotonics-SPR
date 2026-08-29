@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QProcess, Qt, Signal
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from sprpcf.dashboard.operations import project_python_executable, project_subprocess_env
 
 from .theme import GREEN, MUTED, ORANGE, RED
 
@@ -57,6 +59,10 @@ class ProcessConsole(QDialog):
         self._process = QProcess(self)
         self._process.setWorkingDirectory(str(PROJECT_ROOT))
         self._process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        environment = QProcessEnvironment.systemEnvironment()
+        for key, value in project_subprocess_env().items():
+            environment.insert(key, value)
+        self._process.setProcessEnvironment(environment)
         self._process.readyReadStandardOutput.connect(self._read_output)
         self._process.finished.connect(self._finished)
         self._process.errorOccurred.connect(self._process_error)
@@ -265,7 +271,7 @@ class OperationForm(QDialog):
 
 
 def _command(subcommand: str, args: list[object]) -> list[str]:
-    return [sys.executable, "-u", str(MAIN_SCRIPT), subcommand, *[str(value) for value in args]]
+    return [project_python_executable(), "-u", str(MAIN_SCRIPT), subcommand, *[str(value) for value in args]]
 
 
 def generate_data_form(parent: QWidget | None = None) -> OperationForm:

@@ -4,9 +4,13 @@ from pathlib import Path
 from typing import Iterable
 import warnings
 
-from ai_edge_litert.interpreter import Interpreter
 import numpy as np
 import tensorflow as tf
+
+try:
+    from ai_edge_litert.interpreter import Interpreter
+except ModuleNotFoundError:  # pragma: no cover - exercised when LiteRT is not installed
+    from tensorflow.lite.python.interpreter import Interpreter
 
 
 def representative_dataset(samples: np.ndarray, limit: int = 128) -> Iterable[list[np.ndarray]]:

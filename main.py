@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -19,6 +21,63 @@ if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
 
 DEFAULT_DATASET = Path("data/processed/synthetic.parquet")
 DEFAULT_MODEL_DIR = Path("models")
+
+BACKEND_COMMAND_MODULES: dict[str, tuple[str, ...]] = {
+    "generate-data": ("sprpcf", "numpy", "pandas", "pyarrow"),
+    "train-inverse": ("sprpcf", "numpy", "pandas", "pyarrow", "torch"),
+    "train-edge": ("sprpcf", "numpy", "pandas", "pyarrow", "tensorflow"),
+    "run-pipeline": ("sprpcf", "numpy", "pandas", "pyarrow", "torch", "tensorflow"),
+    "simulate-stream": ("sprpcf", "numpy", "pandas", "pyarrow", "tensorflow"),
+    "hil-benchmark": ("sprpcf", "numpy", "tensorflow"),
+    "design-sensor": ("sprpcf", "numpy", "pandas", "torch"),
+    "verify-physics": ("sprpcf", "numpy", "pandas", "torch"),
+    "generate-report": ("sprpcf", "numpy", "pandas"),
+    "web-dashboard": ("sprpcf", "streamlit"),
+}
+
+
+def _project_env() -> dict[str, str]:
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(SRC_ROOT) if not pythonpath else f"{SRC_ROOT}{os.pathsep}{pythonpath}"
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    return env
+
+
+def _python_can_import(python_executable: Path | str, modules: tuple[str, ...]) -> bool:
+    statements = "; ".join(f"import {module}" for module in modules)
+    return (
+        subprocess.call(
+            [str(python_executable), "-c", statements],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=_project_env(),
+        )
+        == 0
+    )
+
+
+def _preferred_backend_python(modules: tuple[str, ...]) -> str:
+    venv311_python = PROJECT_ROOT / ".venv311" / "Scripts" / "python.exe"
+    if venv311_python.exists() and _python_can_import(venv311_python, modules):
+        return str(venv311_python)
+    return sys.executable
+
+
+def _maybe_reexec_backend(argv: list[str] | None) -> None:
+    if argv is not None:
+        return
+    if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+        return
+    command = next((arg for arg in sys.argv[1:] if not arg.startswith("-")), None)
+    modules = BACKEND_COMMAND_MODULES.get(command or "")
+    if modules is None or _python_can_import(sys.executable, modules):
+        return
+    preferred = _preferred_backend_python(modules)
+    if Path(preferred).resolve() == Path(sys.executable).resolve():
+        return
+    completed = subprocess.run([preferred, *sys.argv], env=_project_env())
+    raise SystemExit(completed.returncode)
 
 
 def generate_data(samples: int, output: Path, wavelengths: int, seed: int) -> None:
@@ -445,6 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    _maybe_reexec_backend(argv)
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
