@@ -1,5 +1,5 @@
 """Native desktop control center for CyberPhotonics-SPR."""
 
-from .app import launch_desktop
+from .responsive import ResponsiveControlCenter, launch_desktop
 
-__all__ = ["launch_desktop"]
+__all__ = ["ResponsiveControlCenter", "launch_desktop"]
