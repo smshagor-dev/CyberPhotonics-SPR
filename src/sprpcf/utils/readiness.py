@@ -32,6 +32,7 @@ CRITICAL_PACKAGE_MODULES = (
     "sprpcf.simulation.comsol_sweep",
     "sprpcf.ml.multiobjective",
     "sprpcf.validation.closed_loop",
+    "sprpcf.validation.campaign",
     "sprpcf.edge.hardware",
     "sprpcf.dashboard.core",
     "sprpcf.evidence.qualification",
@@ -51,11 +52,14 @@ OPTIONAL_CAPABILITIES: dict[str, tuple[str, ...]] = {
 REQUIRED_RUNTIME_DIRS = ("data/raw", "data/processed", "models", "outputs")
 REQUIRED_SYSTEM_FILES = (
     "configs/comsol_sweep.example.yaml",
+    "configs/real_validation_campaign.example.yaml",
     "docs/EVIDENCE_QUALIFICATION.md",
+    "docs/REAL_VALIDATION_CAMPAIGN.md",
     "docs/V1_SYSTEM_READINESS.md",
     "scripts/check_system_readiness.py",
     "scripts/register_evidence.py",
     "scripts/smoke_test_wheel.py",
+    "scripts/validation_campaign.py",
 )
 FULL_EVIDENCE_CLASSES = ("comsol_physics", "experimental_sensor", "device_benchmark")
 
@@ -126,38 +130,35 @@ def _evidence_state(
     submission_package: str | Path | None,
     evidence_registry: str | Path | None,
 ) -> dict[str, Any]:
+    """Collect metadata while treating the qualified registry as the only physical truth source."""
     reviewer_manifest = _resolve_manifest(reviewer_package, "manifest.json")
     submission_manifest = _resolve_manifest(submission_package, "submission_manifest.json")
     reviewer = _load_json(reviewer_manifest)
     submission = _load_json(submission_manifest)
 
-    classes = {str(value) for value in reviewer.get("evidence_classes", []) if value}
-    readiness = submission.get("readiness", {})
-    if not isinstance(readiness, dict):
-        readiness = {}
-
-    if readiness.get("numerical_physics_evidence"):
-        classes.add("comsol_physics")
-    if readiness.get("experimental_sensor_evidence"):
-        classes.add("experimental_sensor")
-    if readiness.get("target_device_benchmark_evidence"):
-        classes.add("device_benchmark")
+    reviewer_classes = {str(value) for value in reviewer.get("evidence_classes", []) if value}
+    submission_readiness = submission.get("readiness", {})
+    if not isinstance(submission_readiness, dict):
+        submission_readiness = {}
 
     registry_report: dict[str, Any] | None = None
     registry_path: Path | None = None
+    qualified_classes: set[str] = set()
     if evidence_registry is not None:
         registry_path = Path(evidence_registry)
         registry_report = validate_evidence_registry(registry_path, verify_files=True)
         if registry_report.get("ok"):
-            classes.update(str(value) for value in registry_report.get("evidence_classes", []) if value)
+            qualified_classes.update(str(value) for value in registry_report.get("evidence_classes", []) if value)
 
     return {
         "reviewer_manifest": str(reviewer_manifest) if reviewer_manifest else None,
         "submission_manifest": str(submission_manifest) if submission_manifest else None,
         "evidence_registry": str(registry_path) if registry_path else None,
         "evidence_registry_validation": registry_report,
-        "evidence_classes": sorted(classes),
-        "submission_readiness": readiness,
+        "evidence_classes": sorted(qualified_classes),
+        "presentation_evidence_classes": sorted(reviewer_classes),
+        "submission_readiness": submission_readiness,
+        "physical_truth_source": "qualified_evidence_registry",
     }
 
 
@@ -188,8 +189,24 @@ def _comsol_example_check(root: Path) -> ReadinessCheck:
     missing_top = sorted(required_top - set(payload))
     missing_sweep = sorted(required_sweep - set(sweep)) if isinstance(sweep, dict) else sorted(required_sweep)
     ok = not missing_top and isinstance(sweep, dict) and not missing_sweep
-    detail = f"missing_top={missing_top}, missing_sweep={missing_sweep}"
-    return _check("comsol_example_contract", ok, detail)
+    return _check("comsol_example_contract", ok, f"missing_top={missing_top}, missing_sweep={missing_sweep}")
+
+
+def _campaign_example_check(root: Path) -> ReadinessCheck:
+    path = root / "configs/real_validation_campaign.example.yaml"
+    if not path.is_file():
+        return _check("real_validation_campaign_contract", False, f"missing {path}")
+    try:
+        from sprpcf.validation.campaign import load_campaign_config
+
+        payload = load_campaign_config(path)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        return _check("real_validation_campaign_contract", False, f"invalid campaign config: {exc}")
+    return _check(
+        "real_validation_campaign_contract",
+        bool(payload.get("campaign_id")),
+        f"campaign_id={payload.get('campaign_id')}",
+    )
 
 
 def build_readiness_report(
@@ -201,13 +218,7 @@ def build_readiness_report(
     submission_package: str | Path | None = None,
     evidence_registry: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Audit repository/runtime completeness without fabricating unavailable evidence.
-
-    Profiles:
-      software: core package/runtime completeness.
-      release: software + release/publication/reproducibility contracts.
-      full: release + COMSOL, experimental-sensor, and exact-device evidence.
-    """
+    """Audit repository/runtime completeness without fabricating unavailable evidence."""
     if profile not in {"software", "release", "full"}:
         raise ValueError("profile must be one of: software, release, full")
 
@@ -237,6 +248,7 @@ def build_readiness_report(
         checks.append(_check(f"system_file:{relative}", (root / relative).is_file(), relative))
     if profile in {"release", "full"}:
         checks.append(_comsol_example_check(root))
+        checks.append(_campaign_example_check(root))
 
     release_validation: dict[str, Any] | None = None
     if profile in {"release", "full"}:
@@ -255,13 +267,7 @@ def build_readiness_report(
     for capability, modules in OPTIONAL_CAPABILITIES.items():
         available = all(_module_available(module) for module in modules)
         capability_status[capability] = available
-        checks.append(
-            _info(
-                f"optional_capability:{capability}",
-                available,
-                "modules=" + ",".join(modules),
-            )
-        )
+        checks.append(_info(f"optional_capability:{capability}", available, "modules=" + ",".join(modules)))
 
     git_state = _git_state(root)
     if git_state["available"]:
@@ -289,6 +295,14 @@ def build_readiness_report(
                 required=profile == "full",
             )
         )
+    elif profile == "full":
+        checks.append(
+            _check(
+                "evidence_registry",
+                False,
+                "full readiness requires an explicit qualified evidence registry",
+            )
+        )
 
     classes = set(evidence["evidence_classes"])
     missing_evidence = [name for name in FULL_EVIDENCE_CLASSES if name not in classes]
@@ -299,9 +313,9 @@ def build_readiness_report(
                     f"evidence:{evidence_class}",
                     evidence_class in classes,
                     (
-                        f"evidence class {evidence_class} supplied"
+                        f"qualified registry contains {evidence_class}"
                         if evidence_class in classes
-                        else f"evidence class {evidence_class} not supplied"
+                        else f"qualified registry does not contain {evidence_class}"
                     ),
                 )
             )
@@ -311,7 +325,7 @@ def build_readiness_report(
     ready = not required_failures
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "profile": profile,
         "ready": ready,
         "sprpcf_version": __version__,
@@ -349,19 +363,32 @@ def readiness_markdown(report: dict[str, Any]) -> str:
 
     lines.extend(["", "## Evidence gate", ""])
     classes = report["evidence"]["evidence_classes"]
-    lines.append("Evidence classes supplied: " + (", ".join(f"`{value}`" for value in classes) if classes else "none"))
+    lines.append(
+        "Qualified physical evidence classes: "
+        + (", ".join(f"`{value}`" for value in classes) if classes else "none")
+    )
+    presentation = report["evidence"].get("presentation_evidence_classes", [])
+    if presentation:
+        lines.append(
+            "Reviewer-package presentation classes (non-authoritative for the physical gate): "
+            + ", ".join(f"`{value}`" for value in presentation)
+        )
     registry = report["evidence"].get("evidence_registry")
     if registry:
         lines.append(f"Qualified evidence registry: `{registry}`")
     missing = report.get("missing_full_evidence", [])
     if missing:
         lines.append("")
-        lines.append("Full physical/experimental evidence still missing: " + ", ".join(f"`{value}`" for value in missing))
+        lines.append(
+            "Full physical/experimental evidence still missing: "
+            + ", ".join(f"`{value}`" for value in missing)
+        )
     lines.extend(
         [
             "",
-            "The readiness audit never upgrades synthetic, replay, or surrogate outputs into COMSOL, experimental, or exact-device evidence.",
-            "A qualified registry validates provenance structure and artifact identity; it does not replace scientific review of the underlying experiment or simulation.",
+            "The readiness audit never upgrades synthetic, replay, surrogate, reviewer-package flags, or submission flags into COMSOL, experimental, or exact-device evidence.",
+            "Physical readiness is satisfied only by a qualified evidence registry whose artifact hashes validate.",
+            "Registry qualification validates provenance structure and artifact identity; it does not replace scientific review of the underlying experiment or simulation.",
             "",
         ]
     )
