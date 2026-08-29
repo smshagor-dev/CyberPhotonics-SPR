@@ -1,40 +1,41 @@
 from __future__ import annotations
 
-import subprocess
+import argparse
 
 import main
 
 
-def test_main_without_subcommand_launches_control_center(monkeypatch) -> None:
-    calls: list[list[str]] = []
+def test_main_without_subcommand_launches_native_desktop(monkeypatch) -> None:
+    calls: list[object] = []
 
-    def fake_run(command, check):
-        calls.append(command)
-        assert check is True
-        return subprocess.CompletedProcess(command, 0)
+    def fake_desktop(args=None):
+        calls.append(args)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(main, "launch_desktop", fake_desktop)
     main.main([])
 
-    assert len(calls) == 1
-    assert calls[0][1:4] == ["-m", "streamlit", "run"]
-    assert calls[0][-1].replace("\\", "/").endswith("src/sprpcf/dashboard/app.py")
-    assert "8501" in calls[0]
-    assert "localhost" in calls[0]
+    assert calls == [None]
 
 
-def test_explicit_dashboard_subcommand_uses_same_control_center(monkeypatch) -> None:
-    calls: list[list[str]] = []
+def test_dashboard_alias_launches_native_desktop(monkeypatch) -> None:
+    calls: list[object] = []
 
-    def fake_run(command, check):
-        calls.append(command)
-        assert check is True
-        return subprocess.CompletedProcess(command, 0)
+    def fake_desktop(args=None):
+        calls.append(args)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    main.main(["dashboard", "--port", "8510", "--host", "127.0.0.1"])
+    monkeypatch.setattr(main, "launch_desktop", fake_desktop)
+    main.main(["dashboard"])
 
     assert len(calls) == 1
-    assert calls[0][-1].replace("\\", "/").endswith("src/sprpcf/dashboard/app.py")
-    assert "8510" in calls[0]
-    assert "127.0.0.1" in calls[0]
+    assert isinstance(calls[0], argparse.Namespace)
+    assert calls[0].command == "dashboard"
+
+
+def test_gui_subcommand_launches_same_native_desktop(monkeypatch) -> None:
+    calls: list[object] = []
+
+    monkeypatch.setattr(main, "launch_desktop", lambda args=None: calls.append(args))
+    main.main(["gui"])
+
+    assert len(calls) == 1
+    assert calls[0].command == "gui"
