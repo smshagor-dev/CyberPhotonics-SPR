@@ -17,7 +17,7 @@ from sprpcf.evidence.qualification import (
 from sprpcf.publication.finalization import build_evidence_finalization_package
 from sprpcf.publication.results import build_paper_results_package, validate_paper_results_package
 from sprpcf.utils.reproducibility import sha256_file
-from sprpcf.utils.stable_release import build_stable_release_plan
+from sprpcf.utils.stable_release import apply_stable_version, build_stable_release_plan
 from sprpcf.validation.experiment import analyze_experimental_measurements
 
 
@@ -169,3 +169,11 @@ def test_stable_promotion_plan_allows_only_version_blocker_on_ready_rc(tmp_path:
     assert plan["finalization"]["rc_promotion_ready"] is True
     assert plan["ready_for_promotion"] is True
     assert plan["blockers"] == []
+
+
+def test_stable_apply_refuses_relaxed_clean_git_plan(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="require_clean_git=True"):
+        apply_stable_version(
+            {"ready_for_promotion": True, "require_clean_git": False},
+            repo_root=tmp_path,
+        )
