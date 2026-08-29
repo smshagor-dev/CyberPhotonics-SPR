@@ -14,7 +14,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
 
 jobs:
   create-tag:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Verify exact validated release target
+      - name: Verify exact release target and tag
         shell: bash
         env:
           TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
@@ -35,20 +35,35 @@ jobs:
           version=$(git show "${TARGET_SHA}:pyproject.toml" | sed -n 's/^version = "\([^"]*\)"/\1/p' | head -n1)
           test "$version" = "1.0.0rc1"
           git merge-base --is-ancestor "$TARGET_SHA" HEAD
+
           if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "${RELEASE_TAG} already exists; leaving it unchanged."
-            exit 0
+            git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" --force
+            resolved=$(git rev-list -n 1 "$RELEASE_TAG")
+            test "$resolved" = "$TARGET_SHA"
+            echo "${RELEASE_TAG} already exists at the expected release target."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$RELEASE_TAG" "$TARGET_SHA" -m "CyberPhotonics-SPR ${RELEASE_TAG}"
+            git push origin "refs/tags/${RELEASE_TAG}"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$RELEASE_TAG" "$TARGET_SHA" -m "CyberPhotonics-SPR ${RELEASE_TAG}"
-          git push origin "refs/tags/${RELEASE_TAG}"
+      - name: Dispatch tag-time release validation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: v1.0.0rc1
+        run: |
+          set -euo pipefail
+          gh workflow run release-validation.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$RELEASE_TAG"
+          echo "Dispatched Research Release Validation for ${RELEASE_TAG}."
 
   publish-prerelease:
     if: >-
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.name == 'Research Release Validation' &&
-      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_sha == '9da24f4edb292666d1721328e96e2ff2f54abb60'
     runs-on: ubuntu-latest
@@ -60,7 +75,6 @@ jobs:
       - name: Verify validated tag identity
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
           RELEASE_TAG: v1.0.0rc1
         run: |
@@ -89,7 +103,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: v1.0.0rc1
-          TARGET_SHA: 9da24f4edb292666d1721328e96e2ff2f54abb60
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
