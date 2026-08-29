@@ -12,6 +12,8 @@ def test_release_readiness_passes_for_repository() -> None:
     assert report["required_failures"] == []
     names = {item["name"] for item in report["checks"]}
     assert "system_file:configs/comsol_sweep.example.yaml" in names
+    assert "system_file:configs/real_validation_campaign.example.yaml" in names
+    assert "real_validation_campaign_contract" in names
     assert "release_metadata" in names
 
 
@@ -24,12 +26,13 @@ def test_full_readiness_blocks_without_external_evidence() -> None:
         "device_benchmark",
     }
     failed = {item["name"] for item in report["required_failures"]}
+    assert "evidence_registry" in failed
     assert "evidence:comsol_physics" in failed
     assert "evidence:experimental_sensor" in failed
     assert "evidence:device_benchmark" in failed
 
 
-def test_full_readiness_accepts_explicit_evidence_manifests(tmp_path: Path) -> None:
+def test_package_flags_cannot_bypass_qualified_registry(tmp_path: Path) -> None:
     reviewer = tmp_path / "reviewer"
     submission = tmp_path / "submission"
     reviewer.mkdir()
@@ -38,8 +41,6 @@ def test_full_readiness_accepts_explicit_evidence_manifests(tmp_path: Path) -> N
         json.dumps(
             {
                 "evidence_classes": [
-                    "software_only",
-                    "reproducibility",
                     "comsol_physics",
                     "experimental_sensor",
                     "device_benchmark",
@@ -68,8 +69,13 @@ def test_full_readiness_accepts_explicit_evidence_manifests(tmp_path: Path) -> N
         reviewer_package=reviewer,
         submission_package=submission,
     )
-    assert report["ready"] is True
-    assert report["missing_full_evidence"] == []
+    assert report["ready"] is False
+    assert report["evidence"]["evidence_classes"] == []
+    assert set(report["evidence"]["presentation_evidence_classes"]) == {
+        "comsol_physics",
+        "experimental_sensor",
+        "device_benchmark",
+    }
 
 
 def test_readiness_markdown_preserves_claim_boundary() -> None:
@@ -77,4 +83,4 @@ def test_readiness_markdown_preserves_claim_boundary() -> None:
     text = readiness_markdown(report)
     assert "System Readiness" in text
     assert "never upgrades synthetic" in text
-    assert "comsol_physics" in text
+    assert "qualified evidence registry" in text.lower()

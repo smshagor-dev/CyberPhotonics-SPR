@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
+from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from sprpcf.edge.hardware import (
     KerasModel,
     LiteRTModel,
     LiveSensorPipeline,
+    RawSpectrumFrame,
     SerialJSONLineSource,
     SpectrumPreprocessor,
     TransmissionCalibration,
@@ -22,6 +25,7 @@ from sprpcf.edge.hardware import (
     write_inference_jsonl,
 )
 from sprpcf.ml.dataset import read_table
+from sprpcf.utils.reproducibility import sha256_file
 
 
 def _target_grid(path: Path) -> np.ndarray:
@@ -57,6 +61,27 @@ def _model(path: Path, runtime: str):
     raise ValueError("runtime must be 'litert' or 'keras'.")
 
 
+def _raw_frame_payload(frame: RawSpectrumFrame) -> dict[str, object]:
+    frame.validate()
+    return {
+        "index": int(frame.index),
+        "timestamp_s": float(frame.timestamp_s),
+        "axis_kind": frame.axis_kind,
+        "signal_kind": frame.signal_kind,
+        "source": frame.source,
+        "axis": np.asarray(frame.axis, dtype=np.float64).tolist(),
+        "signal": np.asarray(frame.signal, dtype=np.float64).tolist(),
+        "metadata": frame.metadata or {},
+    }
+
+
+def _write_raw_frames(frames: list[RawSpectrumFrame], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for frame in frames:
+            handle.write(json.dumps(_raw_frame_payload(frame), sort_keys=True) + "\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run calibrated PCF-SPR inference from a hardware or JSONL sensor feed.")
     parser.add_argument("--source", choices=["serial", "jsonl"], required=True)
@@ -74,10 +99,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reference-npy", type=Path)
     parser.add_argument("--path-length-cm", type=float, default=1.0)
     parser.add_argument("--frames", type=int, default=20)
+    parser.add_argument(
+        "--raw-out-jsonl",
+        type=Path,
+        default=Path("outputs/hardware/raw_frames.jsonl"),
+        help="Archive acquired raw frames before preprocessing; required for traceable experimental evidence.",
+    )
     parser.add_argument("--out-jsonl", type=Path, default=Path("outputs/hardware/live_inference.jsonl"))
     parser.add_argument("--benchmark-iterations", type=int, default=0)
     parser.add_argument("--benchmark-warmup", type=int, default=5)
     parser.add_argument("--benchmark-out", type=Path, default=Path("outputs/hardware/benchmark.json"))
+    parser.add_argument("--device-name", help="Human-readable exact target device identifier for benchmark provenance.")
+    parser.add_argument("--os-name", help="Target OS image/version. Defaults to platform.platform().")
+    parser.add_argument("--accelerator", help="CPU/GPU/NPU/other accelerator identity when applicable.")
     return parser
 
 
@@ -133,6 +167,7 @@ def main() -> None:
         if not collected:
             raise RuntimeError("Sensor source produced no frames.")
 
+    _write_raw_frames(collected, args.raw_out_jsonl)
     results = [pipeline.process(frame) for frame in collected]
     write_inference_jsonl(results, args.out_jsonl)
     for result in results:
@@ -140,9 +175,11 @@ def main() -> None:
 
     summary: dict[str, object] = {
         "frames": len(results),
+        "raw_output": str(args.raw_out_jsonl),
         "output": str(args.out_jsonl),
         "runtime": args.runtime,
         "source": args.source,
+        "raw_sha256": sha256_file(args.raw_out_jsonl),
     }
     if args.benchmark_iterations > 0:
         stats = benchmark_pipeline(
@@ -151,9 +188,26 @@ def main() -> None:
             iterations=args.benchmark_iterations,
             warmup=args.benchmark_warmup,
         )
+        benchmark_payload: dict[str, object] = {
+            **stats,
+            "schema_version": 2,
+            "qualification_status": "unqualified_candidate",
+            "source": args.source,
+            "runtime": args.runtime,
+            "device_name": args.device_name,
+            "os_name": args.os_name or platform.platform(),
+            "accelerator": args.accelerator,
+            "captured_utc": datetime.now(timezone.utc).isoformat(),
+            "denoiser_sha256": sha256_file(args.denoiser),
+            "predictor_sha256": sha256_file(args.predictor) if args.predictor else None,
+            "raw_frames_sha256": sha256_file(args.raw_out_jsonl),
+        }
         args.benchmark_out.parent.mkdir(parents=True, exist_ok=True)
-        args.benchmark_out.write_text(json.dumps(stats, indent=2, sort_keys=True), encoding="utf-8")
-        summary["benchmark"] = stats
+        args.benchmark_out.write_text(
+            json.dumps(benchmark_payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        summary["benchmark"] = benchmark_payload
         summary["benchmark_output"] = str(args.benchmark_out)
 
     print(json.dumps(summary, indent=2, sort_keys=True))

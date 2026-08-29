@@ -12,6 +12,7 @@ CRITICAL_IMPORTS = (
     "sprpcf.simulation.comsol_sweep",
     "sprpcf.ml.multiobjective",
     "sprpcf.validation.closed_loop",
+    "sprpcf.validation.campaign",
     "sprpcf.edge.hardware",
     "sprpcf.evidence.qualification",
     "sprpcf.publication.evidence",
@@ -80,7 +81,7 @@ def main() -> None:
     parser.add_argument("--json-out", type=Path)
     args = parser.parse_args()
 
-    report = smoke_test_wheel(args.wheel, expected_version=args.expected_version)
+    report = smoke_test_wheel(wheel=args.wheel, expected_version=args.expected_version)
     payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
     print(payload, end="")
     if args.json_out:
