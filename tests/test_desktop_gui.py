@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QPushButton
 
+from sprpcf.desktop import ResponsiveControlCenter
 from sprpcf.desktop.app import APP_TITLE, ControlCenter
 from sprpcf.desktop.dialogs import generate_data_form, pipeline_form
 from sprpcf.desktop.widgets import StatCard
@@ -41,6 +42,32 @@ def test_native_control_center_renders_without_web_runtime() -> None:
         assert not rendered.isNull()
         assert rendered.width() == 1536
         assert rendered.height() == 1024
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_responsive_control_center_renders_at_laptop_size() -> None:
+    app = _app()
+    window = ResponsiveControlCenter()
+    try:
+        window.resize(1024, 720)
+        window.show()
+        app.processEvents()
+        window._apply_responsive_layout(force=True)
+        app.processEvents()
+
+        assert window.minimumWidth() == 900
+        assert window._last_layout_bucket is not None
+        assert window._last_layout_bucket[1] == 1
+        assert window.sidebar.width() <= 186
+        assert window._scroll_area is not None
+        assert window._scroll_area.horizontalScrollBar().maximum() == 0
+
+        rendered = window.grab()
+        assert not rendered.isNull()
+        assert rendered.width() == 1024
+        assert rendered.height() == 720
     finally:
         window.close()
         app.processEvents()
