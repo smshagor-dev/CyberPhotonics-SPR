@@ -4,8 +4,8 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize
-from PySide6.QtGui import QDesktopServices, QFont, QIcon, QUrl
+from PySide6.QtCore import QSettings, QSize, QUrl
+from PySide6.QtGui import QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -28,7 +28,8 @@ from .fit import ACTION_META, QUICK_ACTIONS, REPOSITORY_URL
 from .fit import ResponsiveControlCenter as _ActionableControlCenter
 from .fit import large_dataset_form
 from .icons import action_icon
-from .theme import GREEN, ORANGE, normalize_theme, palette_for, qt_palette_for, stylesheet_for
+from .theme import GREEN, ORANGE, TEXT as LEGACY_TEXT
+from .theme import normalize_theme, palette_for, qt_palette_for, stylesheet_for
 from .themed_widgets import (
     ThemedDriftChart,
     ThemedGaugeWidget,
@@ -36,6 +37,7 @@ from .themed_widgets import (
     ThemedStageCard,
     ThemedTrainingChart,
 )
+from .widgets import MetricBox
 
 
 _SIDEBAR_SECTION_LABELS = {
@@ -159,6 +161,20 @@ class ResponsiveControlCenter(_ActionableControlCenter):
                     f"color:{theme.muted}; font-size:10px; font-weight:600; letter-spacing:.3px;"
                 )
 
+    def _restyle_metric_boxes(self) -> None:
+        theme = palette_for(self._theme_mode())
+        legacy_token = f"color:{LEGACY_TEXT.lower()}"
+        for box in self.findChildren(MetricBox):
+            marker = box.property("themeNeutralMetric")
+            if marker is None:
+                compact_style = box.value_label.styleSheet().replace(" ", "").lower()
+                marker = legacy_token in compact_style
+                box.setProperty("themeNeutralMetric", bool(marker))
+            if bool(marker):
+                box.value_label.setStyleSheet(
+                    f"color:{theme.text}; font-size:16px; font-weight:600;"
+                )
+
     def _restyle_dynamic_labels(self) -> None:
         theme = palette_for(self._theme_mode())
         healthy = getattr(self, "health_label", None) is not None and self.health_label.text() == "Healthy"
@@ -192,6 +208,7 @@ class ResponsiveControlCenter(_ActionableControlCenter):
         self._tag_brand_marks()
         self._refresh_action_icons()
         self._restyle_sidebar_sections()
+        self._restyle_metric_boxes()
         self._restyle_dynamic_labels()
 
         for stage in self.findChildren(ThemedStageCard):
