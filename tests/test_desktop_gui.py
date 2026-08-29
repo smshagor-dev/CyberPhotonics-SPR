@@ -63,6 +63,7 @@ def test_responsive_control_center_renders_at_laptop_size() -> None:
         assert window.sidebar.width() <= 186
         assert window._scroll_area is not None
         assert window._scroll_area.horizontalScrollBar().maximum() == 0
+        assert window._scroll_area.verticalScrollBar().maximum() > 0
 
         rendered = window.grab()
         assert not rendered.isNull()
