@@ -40,7 +40,7 @@ def _selected() -> pd.Series:
 
 
 def test_dashboard_tabs_and_command_flags() -> None:
-    from sprpcf.ui.dashboard import DASHBOARD_TABS, build_streamlit_command
+    from sprpcf.ui.dashboard import DASHBOARD_TABS, build_streamlit_command, control_center_path
 
     assert DASHBOARD_TABS == [
         "Physics-Informed Inverse Design",
@@ -56,6 +56,8 @@ def test_dashboard_tabs_and_command_flags() -> None:
     assert "127.0.0.1" in command
     assert command[4:8] == ["--server.port", "8502", "--server.address", "127.0.0.1"]
     assert command[8:10] == ["--browser.gatherUsageStats", "false"]
+    assert command[-1] == str(control_center_path())
+    assert command[-1].replace("\\", "/").endswith("src/sprpcf/dashboard/app.py")
 
 
 def test_main_dashboard_cli_invokes_streamlit(monkeypatch) -> None:
@@ -77,7 +79,23 @@ def test_main_dashboard_cli_invokes_streamlit(monkeypatch) -> None:
     assert calls[0][1:4] == ["-m", "streamlit", "run"]
     assert "8503" in calls[0]
     assert "127.0.0.1" in calls[0]
+    assert calls[0][-1].replace("\\", "/").endswith("src/sprpcf/dashboard/app.py")
     assert os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] == "false"
+
+
+def test_control_center_streamlit_smoke_render() -> None:
+    streamlit_testing = pytest.importorskip("streamlit.testing.v1")
+    from sprpcf.dashboard.app import DASHBOARD_PAGES
+    from sprpcf.ui.dashboard import control_center_path
+
+    app = streamlit_testing.AppTest.from_file(str(control_center_path()), default_timeout=15)
+    app.run()
+
+    assert not app.exception
+    assert len(app.radio) >= 1
+    assert app.radio[0].value == "Overview"
+    assert list(app.radio[0].options) == DASHBOARD_PAGES
+    assert any("Workspace readiness" in item.value for item in app.subheader)
 
 
 def test_dashboard_surrogate_outputs_are_stable() -> None:
