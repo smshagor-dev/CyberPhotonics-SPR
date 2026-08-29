@@ -16,6 +16,15 @@ def test_build_cli_command_uses_current_python_without_shell() -> None:
         build_cli_command("--bad")
 
 
+def test_build_cli_command_normalizes_edge_gpu_aliases() -> None:
+    edge = build_cli_command("train-edge", ["--device", "gpu", "--epochs", "2"])
+    assert edge[edge.index("--device") + 1] == "/GPU:0"
+
+    pipeline = build_cli_command("run-pipeline", ["--edge-device", "cuda", "--device", "cuda"])
+    assert pipeline[pipeline.index("--edge-device") + 1] == "/GPU:0"
+    assert pipeline[pipeline.index("--device") + 1] == "cuda"
+
+
 def test_artifact_inventory_reports_real_files(tmp_path: Path) -> None:
     dataset = tmp_path / "synthetic.parquet"
     models = tmp_path / "models"
