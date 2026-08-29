@@ -1,0 +1,11 @@
+2026-07-30 18:57:52.046 
+Traceback (most recent call last):
+  File "E:\Final Project\SPRPCF\main.py", line 283, in <module>
+    main()
+  File "E:\Final Project\SPRPCF\main.py", line 279, in main
+    args.func(args)
+  File "E:\Final Project\SPRPCF\main.py", line 185, in launch_dashboard
+    subprocess.run(command, check=True)
+  File "C:\Users\smsha\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['E:\\Final Project\\SPRPCF\\.venv311\\Scripts\\python.exe', '-m', 'streamlit', 'run', '--server.port', '8501', '--server.address', 'localhost', '--browser.gatherUsageStats', 'false', 'E:\\Final Project\\SPRPCF\\src\\sprpcf\\ui\\dashboard.py']' returned non-zero exit status 4294967295.

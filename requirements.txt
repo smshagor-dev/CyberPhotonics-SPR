@@ -14,4 +14,7 @@ mph>=1.2
 tqdm>=4.66
 pyyaml>=6.0
 pytest>=7.4
+psutil>=5.9
+streamlit>=1.32
+plotly>=5.18
 shap>=0.45; python_version < "3.14"

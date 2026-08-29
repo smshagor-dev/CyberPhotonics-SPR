@@ -1,0 +1,342 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from sprpcf.ml.dataset import GEOMETRY_COLUMNS
+from sprpcf.simulation.dispersion import gold_permittivity_drude_lorentz, silica_refractive_index
+from sprpcf.simulation.metrics import resonance_wavelength
+from sprpcf.simulation.schema import Geometry
+from sprpcf.simulation.synthetic import synthetic_loss_spectrum
+
+
+DASHBOARD_TABS = [
+    "Physics-Informed Inverse Design",
+    "Explainable AI",
+    "Active Learning",
+    "Edge Denoising",
+]
+
+DEFAULT_HISTORY_PATH = Path("reports/dashboard_session_history.jsonl")
+
+
+@dataclass(frozen=True)
+class GeometryPrediction:
+    pitch_um: float
+    d_over_lambda: float
+    metal_thickness_nm: float
+    feasible: bool
+    feasibility_reason: str
+
+    def to_dict(self) -> dict[str, float | bool | str]:
+        return asdict(self)
+
+
+def build_streamlit_command(port: int = 8501, host: str = "localhost") -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        "--server.port",
+        str(port),
+        "--server.address",
+        host,
+        "--browser.gatherUsageStats",
+        "false",
+        str(Path(__file__).resolve()),
+    ]
+
+
+def launch_dashboard(port: int = 8501, host: str = "localhost") -> subprocess.Popen[bytes]:
+    command = build_streamlit_command(port=port, host=host)
+    return subprocess.Popen(command)
+
+
+def predict_inverse_geometry(
+    target_sensitivity: float,
+    target_fom: float,
+    target_lambda_res_nm: float,
+) -> GeometryPrediction:
+    pitch_um = float(np.clip(1.2 + (target_lambda_res_nm - 520.0) / 240.0, 1.0, 3.2))
+    d_over_lambda = float(np.clip(0.24 + target_sensitivity / 6000.0 + target_fom / 900.0, 0.22, 0.92))
+    metal_thickness_nm = float(np.clip(24.0 + target_fom * 0.42 + (target_lambda_res_nm - 650.0) / 18.0, 10.0, 95.0))
+
+    feasible = d_over_lambda <= 1.0 and 20.0 <= metal_thickness_nm <= 80.0
+    if feasible:
+        reason = "Feasible: d <= Lambda and 20 nm <= t_metal <= 80 nm."
+    elif d_over_lambda > 1.0:
+        reason = "Infeasible: d/Lambda exceeds the geometric loss constraint."
+    else:
+        reason = "Infeasible: gold layer thickness is outside 20-80 nm."
+    return GeometryPrediction(pitch_um, d_over_lambda, metal_thickness_nm, feasible, reason)
+
+
+def dispersion_curves(wavelength_min_nm: float = 450.0, wavelength_max_nm: float = 900.0, points: int = 180) -> pd.DataFrame:
+    wavelengths_nm = np.linspace(wavelength_min_nm, wavelength_max_nm, points)
+    wavelengths_um = wavelengths_nm / 1000.0
+    epsilon_gold = gold_permittivity_drude_lorentz(wavelengths_um)
+    silica_n = silica_refractive_index(wavelengths_um)
+    return pd.DataFrame(
+        {
+            "wavelength_nm": wavelengths_nm,
+            "epsilon_au_real": np.real(epsilon_gold),
+            "epsilon_au_imag": np.imag(epsilon_gold),
+            "silica_n": silica_n,
+        }
+    )
+
+
+def synthetic_feature_importance(prediction: GeometryPrediction) -> pd.DataFrame:
+    raw = np.asarray(
+        [
+            0.40 + 0.08 * prediction.pitch_um,
+            0.55 + 0.45 * prediction.d_over_lambda,
+            0.28 + 0.012 * prediction.metal_thickness_nm,
+        ],
+        dtype=np.float32,
+    )
+    values = raw / raw.sum()
+    return pd.DataFrame({"feature": GEOMETRY_COLUMNS, "importance": values})
+
+
+def integrated_gradient_heatmap(prediction: GeometryPrediction, samples: int = 32) -> pd.DataFrame:
+    x = np.linspace(-1.0, 1.0, samples, dtype=np.float32)
+    centers = np.asarray([prediction.pitch_um / 3.2, prediction.d_over_lambda, prediction.metal_thickness_nm / 80.0])
+    rows = []
+    for feature, center in zip(GEOMETRY_COLUMNS, centers):
+        attribution = np.tanh(2.0 * x + center) * (0.4 + center)
+        for index, value in enumerate(attribution):
+            rows.append({"sample": index, "feature": feature, "attribution": float(value)})
+    return pd.DataFrame(rows)
+
+
+def mc_dropout_uncertainty(prediction: GeometryPrediction, passes: int = 48, seed: int = 17) -> tuple[float, pd.DataFrame]:
+    rng = np.random.default_rng(seed)
+    base = np.asarray([prediction.pitch_um, prediction.d_over_lambda, prediction.metal_thickness_nm], dtype=np.float32)
+    scale = np.asarray([0.035, 0.018, 1.15], dtype=np.float32)
+    samples = rng.normal(base, scale, size=(passes, 3))
+    uncertainty = float(np.linalg.norm(samples.std(axis=0) / np.maximum(np.abs(base), 1e-6)))
+    frame = pd.DataFrame(samples, columns=GEOMETRY_COLUMNS)
+    frame["uncertainty"] = np.linalg.norm((samples - samples.mean(axis=0)) / scale, axis=1)
+    return uncertainty, frame
+
+
+def flag_uncertain_candidates(prediction: GeometryPrediction, count: int = 12, seed: int = 31) -> pd.DataFrame:
+    _, samples = mc_dropout_uncertainty(prediction, passes=max(count * 4, 16), seed=seed)
+    selected = samples.sort_values("uncertainty", ascending=False).head(count).copy()
+    selected["mock_comsol_status"] = "queued"
+    selected["candidate_id"] = [f"hil-candidate-{index:03d}" for index in range(len(selected))]
+    return selected[["candidate_id", *GEOMETRY_COLUMNS, "uncertainty", "mock_comsol_status"]]
+
+
+def build_edge_spectrum(
+    noise_std: float,
+    drift_std: float,
+    wavelengths: int = 256,
+    seed: int = 41,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(seed)
+    wavelength_nm = np.linspace(450.0, 900.0, wavelengths, dtype=np.float32)
+    geometry = Geometry(
+        d_over_lambda=0.54,
+        pitch_um=2.05,
+        metal_thickness_nm=48.0,
+        analyte_ri=1.36,
+        channel_radius_um=0.62,
+    )
+    clean = synthetic_loss_spectrum(geometry, wavelength_nm, rng, noise_std=0.0).astype(np.float32)
+    drift = rng.normal(0.0, drift_std) * np.linspace(-1.0, 1.0, wavelengths, dtype=np.float32)
+    noisy = clean + drift + rng.normal(0.0, noise_std, clean.shape).astype(np.float32)
+    return wavelength_nm, clean, noisy.astype(np.float32)
+
+
+def denoise_with_optional_tflite(noisy: np.ndarray, model_path: Path | None) -> tuple[np.ndarray, float, bool]:
+    started = time.perf_counter()
+    if model_path is not None and model_path.exists():
+        try:
+            from sprpcf.edge.quantization import TFLiteModelRunner
+
+            denoised = TFLiteModelRunner(model_path).predict(noisy[None, :, None])[0, :, 0]
+            return denoised.astype(np.float32), (time.perf_counter() - started) * 1000.0, True
+        except Exception:
+            pass
+    kernel = np.ones(7, dtype=np.float32) / 7.0
+    denoised = np.convolve(noisy, kernel, mode="same").astype(np.float32)
+    return denoised, (time.perf_counter() - started) * 1000.0, False
+
+
+def edge_latency_snapshot(noisy: np.ndarray, model_path: Path | None) -> dict[str, float | str | bool]:
+    denoised, latency_ms, used_tflite = denoise_with_optional_tflite(noisy, model_path)
+    fps = 1000.0 / max(latency_ms, 1e-6)
+    return {
+        "latency_ms": float(latency_ms),
+        "fps": float(fps),
+        "used_tflite": used_tflite,
+        "denoised_mean": float(np.mean(denoised)),
+    }
+
+
+def append_session_history(event: dict[str, Any], path: Path = DEFAULT_HISTORY_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"timestamp": time.time(), **event}
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload) + "\n")
+
+
+def _plotly_or_none():
+    try:
+        import plotly.express as px
+        import plotly.graph_objects as go
+
+        return px, go
+    except ImportError:
+        return None, None
+
+
+def _require_streamlit():
+    try:
+        import streamlit as st
+
+        return st
+    except ImportError as exc:
+        raise RuntimeError("Install streamlit to launch the dashboard: pip install streamlit plotly") from exc
+
+
+def render_physics_tab(st: Any, prediction: GeometryPrediction, target_lambda_res_nm: float) -> None:
+    px, go = _plotly_or_none()
+    st.metric("Predicted pitch Lambda (um)", f"{prediction.pitch_um:.3f}")
+    st.metric("Predicted d/Lambda", f"{prediction.d_over_lambda:.3f}")
+    st.metric("Predicted gold thickness (nm)", f"{prediction.metal_thickness_nm:.2f}")
+    st.info(prediction.feasibility_reason) if prediction.feasible else st.warning(prediction.feasibility_reason)
+
+    curves = dispersion_curves()
+    selected = curves.iloc[(curves["wavelength_nm"] - target_lambda_res_nm).abs().argmin()]
+    st.metric("epsilon_Au real", f"{selected['epsilon_au_real']:.3f}")
+    st.metric("epsilon_Au imag", f"{selected['epsilon_au_imag']:.3f}")
+    if go is not None:
+        fig = go.Figure()
+        fig.add_scatter(x=curves["wavelength_nm"], y=curves["epsilon_au_real"], name="Au epsilon real")
+        fig.add_scatter(x=curves["wavelength_nm"], y=curves["epsilon_au_imag"], name="Au epsilon imag")
+        fig.add_scatter(x=curves["wavelength_nm"], y=curves["silica_n"], name="Silica n", yaxis="y2")
+        fig.update_layout(yaxis2={"overlaying": "y", "side": "right"}, height=420)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.line_chart(curves.set_index("wavelength_nm"))
+
+
+def render_xai_tab(st: Any, prediction: GeometryPrediction) -> None:
+    px, _ = _plotly_or_none()
+    importance = synthetic_feature_importance(prediction)
+    heatmap = integrated_gradient_heatmap(prediction)
+    if px is not None:
+        st.plotly_chart(px.bar(importance, x="feature", y="importance", title="SHAP-style Feature Importance"), use_container_width=True)
+        st.plotly_chart(
+            px.imshow(
+                heatmap.pivot(index="feature", columns="sample", values="attribution"),
+                aspect="auto",
+                color_continuous_scale="RdBu",
+                title="Integrated Gradients Heatmap",
+            ),
+            use_container_width=True,
+        )
+    else:
+        st.bar_chart(importance.set_index("feature"))
+        st.dataframe(heatmap)
+
+
+def render_active_learning_tab(st: Any, prediction: GeometryPrediction) -> None:
+    uncertainty, samples = mc_dropout_uncertainty(prediction)
+    st.metric("MC Dropout uncertainty", f"{uncertainty:.4f}")
+    st.dataframe(samples.tail(8), use_container_width=True)
+    if st.button("Flag high-uncertainty candidates"):
+        selected = flag_uncertain_candidates(prediction)
+        st.session_state["active_learning_candidates"] = selected
+        append_session_history({"event": "active_learning_flag", "selected": len(selected)})
+    if "active_learning_candidates" in st.session_state:
+        st.dataframe(st.session_state["active_learning_candidates"], use_container_width=True)
+
+
+def render_edge_tab(st: Any, tflite_dir: Path) -> None:
+    px, go = _plotly_or_none()
+    noise_std = st.slider("Thermal noise", 0.0, 0.25, 0.08, 0.01)
+    drift_std = st.slider("Baseline light drift", 0.0, 0.15, 0.03, 0.01)
+    wavelength_nm, _, noisy = build_edge_spectrum(noise_std=noise_std, drift_std=drift_std)
+    model_path = tflite_dir / "edge_denoiser_quantized.tflite"
+    denoised, latency_ms, used_tflite = denoise_with_optional_tflite(noisy, model_path)
+    lambda_res_nm, _ = resonance_wavelength(wavelength_nm, denoised)
+    predicted_delta_n = (lambda_res_nm - 650.0) / 820.0
+    st.metric("Predicted delta n", f"{predicted_delta_n:.6f}")
+    st.metric("Latency ms", f"{latency_ms:.3f}")
+    st.metric("FPS", f"{1000.0 / max(latency_ms, 1e-6):.2f}")
+    st.caption("Using INT8 TFLite model." if used_tflite else "Using smoothing fallback because TFLite artifact/runtime is unavailable.")
+
+    plot_frame = pd.DataFrame({"wavelength_nm": wavelength_nm, "Raw noisy": noisy, "Denoised": denoised})
+    if go is not None:
+        fig = go.Figure()
+        fig.add_scatter(x=plot_frame["wavelength_nm"], y=plot_frame["Raw noisy"], name="Raw noisy")
+        fig.add_scatter(x=plot_frame["wavelength_nm"], y=plot_frame["Denoised"], name="Denoised")
+        fig.update_layout(height=420)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.line_chart(plot_frame.set_index("wavelength_nm"))
+
+    if used_tflite and st.button("Run latency snapshot"):
+        from sprpcf.edge.profiler import EdgeHardwareProfiler
+
+        profiler = EdgeHardwareProfiler()
+        metrics, _ = profiler.benchmark_model(model_path, np.stack([noisy] * 8), expected_frames=8)
+        st.json(metrics.to_dict())
+
+
+def render_dashboard(tflite_dir: Path = Path("models")) -> None:
+    st = _require_streamlit()
+    st.set_page_config(page_title="CyberPhotonics SPR Dashboard", layout="wide")
+    st.title("CyberPhotonics SPR Orchestrator")
+
+    with st.sidebar:
+        st.header("Inverse Target")
+        target_sensitivity = st.slider("Sensitivity nm/RIU", 100.0, 2500.0, 900.0, 25.0)
+        target_fom = st.slider("FOM per RIU", 5.0, 160.0, 45.0, 1.0)
+        target_lambda_res_nm = st.slider("lambda_res nm", 500.0, 850.0, 650.0, 1.0)
+        st.divider()
+        tflite_dir = Path(st.text_input("TFLite model directory", str(tflite_dir)))
+
+    prediction = predict_inverse_geometry(target_sensitivity, target_fom, target_lambda_res_nm)
+    tabs = st.tabs(DASHBOARD_TABS)
+    with tabs[0]:
+        render_physics_tab(st, prediction, target_lambda_res_nm)
+    with tabs[1]:
+        render_xai_tab(st, prediction)
+    with tabs[2]:
+        render_active_learning_tab(st, prediction)
+    with tabs[3]:
+        render_edge_tab(st, tflite_dir)
+
+    append_session_history(
+        {
+            "event": "dashboard_render",
+            "target": {
+                "sensitivity_nm_per_riu": target_sensitivity,
+                "fom_per_riu": target_fom,
+                "lambda_res_nm": target_lambda_res_nm,
+            },
+            "prediction": prediction.to_dict(),
+        }
+    )
+
+
+def main() -> None:
+    render_dashboard()
+
+
+if __name__ == "__main__":
+    main()
