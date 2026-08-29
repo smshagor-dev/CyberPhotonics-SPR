@@ -43,11 +43,25 @@ class ArtifactStatus:
         return asdict(self)
 
 
+def _normalize_dashboard_arguments(subcommand: str, arguments: Iterable[str]) -> list[str]:
+    """Normalize friendly dashboard values to the CLI/runtime contract."""
+    values = [str(value) for value in arguments]
+    device_flags = {"--device"} if subcommand == "train-edge" else set()
+    if subcommand == "run-pipeline":
+        device_flags.add("--edge-device")
+
+    for index, value in enumerate(values[:-1]):
+        if value in device_flags and values[index + 1].strip().lower() in {"gpu", "cuda", "gpu:0", "/gpu:0"}:
+            values[index + 1] = "/GPU:0"
+    return values
+
+
 def build_cli_command(subcommand: str, arguments: Iterable[str] = ()) -> list[str]:
     """Build a dashboard-to-CLI command without shell interpolation."""
     if not subcommand or subcommand.startswith("-"):
         raise ValueError("subcommand must be a non-empty command name")
-    return [sys.executable, "-u", str(MAIN_SCRIPT), subcommand, *[str(value) for value in arguments]]
+    normalized = _normalize_dashboard_arguments(subcommand, arguments)
+    return [sys.executable, "-u", str(MAIN_SCRIPT), subcommand, *normalized]
 
 
 def run_cli_task(
