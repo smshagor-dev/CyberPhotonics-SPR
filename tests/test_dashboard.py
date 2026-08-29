@@ -60,7 +60,7 @@ def test_dashboard_tabs_and_command_flags() -> None:
     assert command[-1].replace("\\", "/").endswith("src/sprpcf/dashboard/app.py")
 
 
-def test_main_dashboard_cli_invokes_streamlit(monkeypatch) -> None:
+def test_main_legacy_web_dashboard_cli_invokes_streamlit(monkeypatch) -> None:
     import os
     import main
 
@@ -73,7 +73,7 @@ def test_main_dashboard_cli_invokes_streamlit(monkeypatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    main.main(["dashboard", "--port", "8503", "--host", "127.0.0.1"])
+    main.main(["web-dashboard", "--port", "8503", "--host", "127.0.0.1"])
 
     assert len(calls) == 1
     assert calls[0][1:4] == ["-m", "streamlit", "run"]
