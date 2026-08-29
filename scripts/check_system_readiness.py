@@ -14,6 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-version")
     parser.add_argument("--reviewer-package", type=Path)
     parser.add_argument("--submission-package", type=Path)
+    parser.add_argument("--evidence-registry", type=Path)
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--markdown-out", type=Path)
     parser.add_argument(
@@ -32,6 +33,7 @@ def main() -> None:
         expected_version=args.expected_version,
         reviewer_package=args.reviewer_package,
         submission_package=args.submission_package,
+        evidence_registry=args.evidence_registry,
     )
 
     payload = json.dumps(report, indent=2, sort_keys=True) + "\n"

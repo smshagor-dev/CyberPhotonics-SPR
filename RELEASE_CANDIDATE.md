@@ -21,6 +21,7 @@ The RC includes:
 - manuscript supplementary/submission packaging,
 - deterministic software-only publication demo,
 - whole-system readiness auditing,
+- hash-bound physical evidence qualification/registry,
 - built-wheel isolated smoke validation,
 - tracked COMSOL configuration contract template,
 - warnings-as-errors CI across the supported Python matrix.
@@ -38,7 +39,9 @@ python scripts/check_system_readiness.py \
 
 See `docs/V1_SYSTEM_READINESS.md` for the complete definition of done.
 
-A separate `--profile full` gate is intentionally stricter and requires real evidence classes for COMSOL physics, experimental sensor measurements, and exact-device benchmarks. This prevents software completeness from being confused with physical-claim completeness.
+A separate `--profile full` gate is intentionally stricter and requires qualified real evidence classes for COMSOL physics, experimental sensor measurements, and exact-device benchmarks. Physical evidence can be registered through `scripts/register_evidence.py`; see `docs/EVIDENCE_QUALIFICATION.md`.
+
+This prevents software completeness from being confused with physical-claim completeness.
 
 ## Stable-release gates
 
@@ -48,10 +51,11 @@ Before creating stable `v1.0.0`, deliberately review:
 - whole-system `release` readiness,
 - wheel and source-distribution build,
 - isolated smoke import of the built wheel,
-- core, edge, dashboard, publication, and submission tests,
+- core, edge, dashboard, publication, submission, and evidence-qualification tests,
 - COMSOL configuration contract and actual `.mph` model/unit validation,
 - reviewer package integrity and claims matrix,
 - submission package checksums and evidence readiness flags,
+- qualified evidence-registry hashes when physical claims are included,
 - release notes and citation metadata,
 - known limitations and scientific-boundary wording.
 

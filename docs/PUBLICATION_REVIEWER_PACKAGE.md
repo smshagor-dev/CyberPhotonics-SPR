@@ -13,6 +13,7 @@ A generated package can include:
 - Pareto/inverse-design evidence,
 - COMSOL closed-loop verification outputs,
 - hardware/runtime evidence,
+- qualified physical-evidence registry records,
 - reproducibility manifests and environment snapshots,
 - release validation metadata,
 - citation, model-card, dataset-card, license, and reproducibility documentation,
@@ -22,7 +23,7 @@ A generated package can include:
 - reviewer quick-start guidance,
 - generated release notes.
 
-Large model binaries and COMSOL `.mph` files are not copied by default. Their provenance should be retained through hashes and the original experiment records.
+Large model binaries and COMSOL `.mph` files are not copied by default. Their provenance should be retained through hashes and the original experiment records/evidence registry.
 
 ## 2. Evidence classes
 
@@ -48,6 +49,8 @@ The packager is conservative by default.
 
 Do **not** label replayed, synthetic, workstation, or simulated results as `experimental_sensor` or `device_benchmark`.
 
+For physical evidence, prefer the qualification workflow in `docs/EVIDENCE_QUALIFICATION.md`. A supplied evidence registry is hash-validated before its registered artifacts are admitted to the reviewer package.
+
 ## 3. Build a package from completed research artifacts
 
 Example:
@@ -64,7 +67,20 @@ python scripts/build_reviewer_package.py `
 
 If the closed-loop manifest records `backend = comsol` / `evidence_class = comsol_physics`, the package preserves that classification.
 
-For genuine measured sensor evidence:
+After real physical/deployment evidence has been qualified, the registry can be attached directly:
+
+```powershell
+python scripts/build_reviewer_package.py `
+  --validation-dir outputs/validation `
+  --design-dir outputs/multiobjective `
+  --evidence-registry outputs/evidence/evidence_registry.json `
+  --reproducibility-dir outputs/repro/experiment_001 `
+  --out outputs/reviewer_package_full
+```
+
+The registry itself is packaged as reproducibility evidence. Packable registered artifacts are included under their qualified physical evidence classes; oversized or intentionally excluded binary artifacts remain hash-bound by the registry instead of being silently copied.
+
+For genuine measured sensor evidence without a registry, the legacy explicit path remains supported:
 
 ```powershell
 python scripts/build_reviewer_package.py `
@@ -99,8 +115,9 @@ Recommended inspection order:
 2. `CLAIMS_MATRIX.md`
 3. `artifact_index.csv`
 4. the relevant evidence directories
-5. `manifest.json`
-6. `checksums.sha256`
+5. qualified evidence registry when supplied
+6. `manifest.json`
+7. `checksums.sha256`
 
 The claims matrix reports `not supplied` when COMSOL, experimental, or target-device evidence is absent. Missing evidence is never replaced with a guessed value.
 
@@ -127,7 +144,8 @@ outputs/publication_demo/
 ├── demo_synthetic.parquet
 ├── validation/
 ├── reproducibility/
-└── reviewer_package/
+├── reviewer_package/
+└── submission_package/
 ```
 
 Open `DEMO_INDEX.html` for the static reviewer/demo landing page.
@@ -139,11 +157,14 @@ The demo is explicitly labeled `software_only`. It demonstrates the publication 
 The tag-time `Research Release Validation` workflow:
 
 1. validates release metadata,
-2. runs core tests with warnings as errors,
-3. builds wheel and source distributions,
-4. captures a reproducibility bundle,
-5. builds the deterministic publication demo,
-6. uploads the demo reviewer package together with the release evidence.
+2. runs whole-system release readiness,
+3. runs core tests with warnings as errors,
+4. builds wheel and source distributions,
+5. smoke-imports the built wheel from an isolated environment,
+6. captures a reproducibility bundle,
+7. builds the deterministic publication demo,
+8. builds reviewer/submission packages,
+9. uploads release evidence.
 
 The workflow does not publish a DOI, fabricate experimental evidence, or claim that a tagged software release has been experimentally validated.
 
@@ -160,6 +181,7 @@ Before submission, verify that:
 - COMSOL evidence uses the correct `.mph` model, materials, mesh, boundaries, and units,
 - experimental evidence includes the measurement protocol and calibration provenance,
 - device benchmarks were measured on the exact reported device,
+- evidence-registry validation is current if a registry is used,
 - no synthetic/demo value is presented as a laboratory result,
 - the claims matrix matches the wording used in the manuscript.
 
@@ -167,4 +189,4 @@ Before submission, verify that:
 
 The package is an evidence organizer and provenance tool. It does not establish correctness by itself.
 
-A hash proves artifact identity, not scientific validity. A COMSOL label is useful only when the underlying model is physically appropriate. An experimental label is useful only when the measurement protocol is valid and documented. Peer review remains necessary.
+A hash proves artifact identity, not scientific validity. A qualified registry confirms required provenance structure and hash consistency, not that the underlying experiment or model is scientifically correct. Peer review remains necessary.

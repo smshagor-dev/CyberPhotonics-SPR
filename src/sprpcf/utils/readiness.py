@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from sprpcf import __version__
+from sprpcf.evidence.qualification import validate_evidence_registry
 from sprpcf.utils.release import REQUIRED_RELEASE_FILES, validate_release
 
 SUPPORTED_PYTHON = ((3, 10), (3, 11), (3, 12), (3, 13))
@@ -33,6 +34,7 @@ CRITICAL_PACKAGE_MODULES = (
     "sprpcf.validation.closed_loop",
     "sprpcf.edge.hardware",
     "sprpcf.dashboard.core",
+    "sprpcf.evidence.qualification",
     "sprpcf.publication.evidence",
     "sprpcf.publication.submission",
     "sprpcf.utils.reproducibility",
@@ -49,8 +51,10 @@ OPTIONAL_CAPABILITIES: dict[str, tuple[str, ...]] = {
 REQUIRED_RUNTIME_DIRS = ("data/raw", "data/processed", "models", "outputs")
 REQUIRED_SYSTEM_FILES = (
     "configs/comsol_sweep.example.yaml",
+    "docs/EVIDENCE_QUALIFICATION.md",
     "docs/V1_SYSTEM_READINESS.md",
     "scripts/check_system_readiness.py",
+    "scripts/register_evidence.py",
     "scripts/smoke_test_wheel.py",
 )
 FULL_EVIDENCE_CLASSES = ("comsol_physics", "experimental_sensor", "device_benchmark")
@@ -120,6 +124,7 @@ def _load_json(path: Path | None) -> dict[str, Any]:
 def _evidence_state(
     reviewer_package: str | Path | None,
     submission_package: str | Path | None,
+    evidence_registry: str | Path | None,
 ) -> dict[str, Any]:
     reviewer_manifest = _resolve_manifest(reviewer_package, "manifest.json")
     submission_manifest = _resolve_manifest(submission_package, "submission_manifest.json")
@@ -138,9 +143,19 @@ def _evidence_state(
     if readiness.get("target_device_benchmark_evidence"):
         classes.add("device_benchmark")
 
+    registry_report: dict[str, Any] | None = None
+    registry_path: Path | None = None
+    if evidence_registry is not None:
+        registry_path = Path(evidence_registry)
+        registry_report = validate_evidence_registry(registry_path, verify_files=True)
+        if registry_report.get("ok"):
+            classes.update(str(value) for value in registry_report.get("evidence_classes", []) if value)
+
     return {
         "reviewer_manifest": str(reviewer_manifest) if reviewer_manifest else None,
         "submission_manifest": str(submission_manifest) if submission_manifest else None,
+        "evidence_registry": str(registry_path) if registry_path else None,
+        "evidence_registry_validation": registry_report,
         "evidence_classes": sorted(classes),
         "submission_readiness": readiness,
     }
@@ -184,6 +199,7 @@ def build_readiness_report(
     expected_version: str | None = None,
     reviewer_package: str | Path | None = None,
     submission_package: str | Path | None = None,
+    evidence_registry: str | Path | None = None,
 ) -> dict[str, Any]:
     """Audit repository/runtime completeness without fabricating unavailable evidence.
 
@@ -260,7 +276,20 @@ def build_readiness_report(
     else:
         checks.append(ReadinessCheck("git_worktree", "unavailable", False, "git state unavailable"))
 
-    evidence = _evidence_state(reviewer_package, submission_package)
+    evidence = _evidence_state(reviewer_package, submission_package, evidence_registry)
+    registry_report = evidence.get("evidence_registry_validation")
+    if evidence_registry is not None:
+        registry_ok = bool(isinstance(registry_report, dict) and registry_report.get("ok"))
+        registry_errors = registry_report.get("errors", []) if isinstance(registry_report, dict) else []
+        checks.append(
+            _check(
+                "evidence_registry",
+                registry_ok,
+                "; ".join(str(value) for value in registry_errors) or "registry structure and artifact hashes valid",
+                required=profile == "full",
+            )
+        )
+
     classes = set(evidence["evidence_classes"])
     missing_evidence = [name for name in FULL_EVIDENCE_CLASSES if name not in classes]
     if profile == "full":
@@ -282,7 +311,7 @@ def build_readiness_report(
     ready = not required_failures
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": profile,
         "ready": ready,
         "sprpcf_version": __version__,
@@ -321,6 +350,9 @@ def readiness_markdown(report: dict[str, Any]) -> str:
     lines.extend(["", "## Evidence gate", ""])
     classes = report["evidence"]["evidence_classes"]
     lines.append("Evidence classes supplied: " + (", ".join(f"`{value}`" for value in classes) if classes else "none"))
+    registry = report["evidence"].get("evidence_registry")
+    if registry:
+        lines.append(f"Qualified evidence registry: `{registry}`")
     missing = report.get("missing_full_evidence", [])
     if missing:
         lines.append("")
@@ -329,6 +361,7 @@ def readiness_markdown(report: dict[str, Any]) -> str:
         [
             "",
             "The readiness audit never upgrades synthetic, replay, or surrogate outputs into COMSOL, experimental, or exact-device evidence.",
+            "A qualified registry validates provenance structure and artifact identity; it does not replace scientific review of the underlying experiment or simulation.",
             "",
         ]
     )

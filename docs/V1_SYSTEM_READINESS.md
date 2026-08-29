@@ -16,6 +16,7 @@ install/package
 → dashboard
 → reviewer package
 → submission package
+→ evidence qualification
 → release validation
 → stable-release decision
 ```
@@ -60,7 +61,19 @@ The software provides calibration, preprocessing, LiteRT inference, serial/JSONL
 
 Reviewer and manuscript-submission bundles retain evidence classes, hashes, manifests and missing-evidence flags. Stable software release does not require fabricated physical data; manuscript claims that explicitly depend on COMSOL, laboratory measurements or target-device benchmarks do require those evidence classes.
 
-## Authoritative readiness command
+### 6. Physical evidence qualification
+
+Real evidence can be registered with `scripts/register_evidence.py`. Qualification verifies required provenance structure and SHA-256 identity before a physical class is admitted to the full-readiness gate.
+
+The registry supports:
+
+- real COMSOL closed-loop iterations with model/config hash matching;
+- measured sensor sessions with raw data, protocol, calibration, instrument identity and acquisition time;
+- exact-device benchmark JSON bound to the deployed model and named runtime/device.
+
+See `docs/EVIDENCE_QUALIFICATION.md`.
+
+## Authoritative readiness commands
 
 Software/repository check:
 
@@ -79,11 +92,13 @@ python scripts/check_system_readiness.py \
   --strict
 ```
 
-Full evidence check after real research artifacts exist:
+Full evidence check after real research artifacts are qualified:
 
 ```bash
 python scripts/check_system_readiness.py \
   --profile full \
+  --expected-version 1.0.0rc1 \
+  --evidence-registry outputs/evidence/evidence_registry.json \
   --reviewer-package outputs/reviewer_package \
   --submission-package outputs/submission_package \
   --json-out outputs/readiness/full.json \
@@ -123,6 +138,6 @@ Stable `v1.0.0` should be created only after:
 4. reviewer/submission package integrity passes;
 5. release notes and citation metadata are reviewed;
 6. claims in the manuscript match the evidence actually supplied;
-7. real COMSOL/experimental/device results are attached before making those corresponding claims.
+7. real COMSOL/experimental/device results are qualified before making those corresponding claims.
 
 The system can therefore be software-release-ready while still truthfully reporting that some physical research evidence has not yet been supplied.
