@@ -4,8 +4,8 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize
-from PySide6.QtGui import QDesktopServices, QFont, QIcon, QUrl
+from PySide6.QtCore import QSettings, QSize, QUrl
+from PySide6.QtGui import QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
