@@ -1,0 +1,34 @@
+schema_version: 1
+campaign_id: m9-real-validation
+
+registry: outputs/m9/evidence/evidence_registry.json
+reviewer_package: outputs/m9/reviewer_package
+submission_package: outputs/m9/submission_package
+
+comsol:
+  checkpoint: models/tandem.pt
+  targets: data/processed/validation_targets.csv
+  base_data: data/processed/dataset.parquet
+  model: REPLACE_WITH_VALIDATED_COMSOL_MODEL.mph
+  config: configs/comsol_sweep.example.yaml
+  output_dir: outputs/m9/comsol
+  passes: 32
+  ri_span: 0.04
+  ri_points: 5
+  seed: 7
+
+experiment:
+  raw_data:
+    - outputs/m9/experiment/raw_frames.jsonl
+  protocol: outputs/m9/experiment/EXPERIMENT_PROTOCOL.md
+  calibration: outputs/m9/experiment/calibration.json
+  instrument_id: REPLACE_WITH_INSTRUMENT_ID
+  acquired_at: REPLACE_WITH_TIMEZONE_AWARE_ISO8601
+
+device:
+  benchmark: outputs/m9/device/benchmark.json
+  model: models/denoiser_int8.tflite
+  device_name: REPLACE_WITH_EXACT_DEVICE_NAME
+  os_name: REPLACE_WITH_EXACT_OS_IMAGE
+  runtime: LiteRT
+  accelerator: REPLACE_IF_APPLICABLE
