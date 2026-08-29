@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint, save_tandem_checkpoint
 from sprpcf.ml.dataset import CONDITION_COLUMNS, GEOMETRY_COLUMNS, METRIC_COLUMNS, DesignDataModule
 from sprpcf.ml.ensemble import build_forward_ensemble_checkpoint
 from sprpcf.ml.losses import GEOMETRY_MAX, GEOMETRY_MIN
@@ -37,7 +38,7 @@ def _make_checkpoint(tmp_path):
         "seed": 7,
     }
     checkpoint_path = tmp_path / "tandem.pt"
-    torch.save(checkpoint, checkpoint_path)
+    save_tandem_checkpoint(checkpoint, checkpoint_path)
     return checkpoint_path, data_path, frame
 
 
@@ -83,9 +84,9 @@ def test_calibration_and_multiobjective_design_are_finite_and_bounded(tmp_path):
 
 def test_forward_ensemble_builder_preserves_primary_and_adds_members(tmp_path):
     checkpoint_path, data_path, _ = _make_checkpoint(tmp_path)
-    base = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    base = load_tandem_checkpoint(checkpoint_path)
     base.pop("forward_ensemble_state_dicts")
-    torch.save(base, checkpoint_path)
+    save_tandem_checkpoint(base, checkpoint_path)
     output_path = tmp_path / "ensemble.pt"
     summary = build_forward_ensemble_checkpoint(
         checkpoint_path,
@@ -96,7 +97,7 @@ def test_forward_ensemble_builder_preserves_primary_and_adds_members(tmp_path):
         batch_size=16,
         device_name="cpu",
     )
-    upgraded = torch.load(output_path, map_location="cpu", weights_only=False)
+    upgraded = load_tandem_checkpoint(output_path)
     assert summary["members"] == 2
     assert upgraded["forward_ensemble_members"] == 2
     assert len(upgraded["forward_ensemble_state_dicts"]) == 2
