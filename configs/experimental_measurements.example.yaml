@@ -1,0 +1,26 @@
+schema_version: 1
+experiment_id: real-pcf-spr-sensor-validation
+
+# Each path points to a calibrated spectrum table with two columns:
+# wavelength_nm, loss_db_per_cm
+# Keep the original raw acquisition files separately and register them with
+# scripts/register_evidence.py experimental. This manifest is for derived analysis only.
+spectra:
+  - analyte_ri: 1.33
+    replicate: "1"
+    path: ../outputs/experiment/processed/ri_1.33_rep1.csv
+  - analyte_ri: 1.33
+    replicate: "2"
+    path: ../outputs/experiment/processed/ri_1.33_rep2.csv
+  - analyte_ri: 1.35
+    replicate: "1"
+    path: ../outputs/experiment/processed/ri_1.35_rep1.csv
+  - analyte_ri: 1.35
+    replicate: "2"
+    path: ../outputs/experiment/processed/ri_1.35_rep2.csv
+  - analyte_ri: 1.37
+    replicate: "1"
+    path: ../outputs/experiment/processed/ri_1.37_rep1.csv
+  - analyte_ri: 1.37
+    replicate: "2"
+    path: ../outputs/experiment/processed/ri_1.37_rep2.csv
