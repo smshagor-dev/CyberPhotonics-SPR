@@ -19,11 +19,18 @@ comsol:
 
 experiment:
   raw_data:
-    - outputs/real_validation/experiment/raw_frames.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.33_rep1.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.33_rep2.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.35_rep1.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.35_rep2.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.37_rep1.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.37_rep2.jsonl
   protocol: outputs/real_validation/experiment/EXPERIMENT_PROTOCOL.md
   calibration: outputs/real_validation/experiment/calibration.json
   instrument_id: REPLACE_WITH_INSTRUMENT_ID
   acquired_at: REPLACE_WITH_TIMEZONE_AWARE_ISO8601
+  measurement_manifest: outputs/real_validation/experiment/experimental_measurements.yaml
+  analysis_output_dir: outputs/real_validation/experiment/analysis
 
 device:
   benchmark: outputs/real_validation/device/benchmark.json

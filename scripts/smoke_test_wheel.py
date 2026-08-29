@@ -14,12 +14,16 @@ CRITICAL_IMPORTS = (
     "sprpcf.validation.closed_loop",
     "sprpcf.validation.campaign",
     "sprpcf.validation.preflight",
+    "sprpcf.validation.experiment",
+    "sprpcf.validation.completion",
     "sprpcf.edge.hardware",
     "sprpcf.evidence.qualification",
     "sprpcf.publication.evidence",
     "sprpcf.publication.submission",
     "sprpcf.publication.finalization",
+    "sprpcf.publication.results",
     "sprpcf.utils.readiness",
+    "sprpcf.utils.stable_release",
 )
 
 
