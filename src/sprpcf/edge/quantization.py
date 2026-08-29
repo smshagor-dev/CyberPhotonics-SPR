@@ -2,16 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable
+import warnings
 
+from ai_edge_litert.interpreter import Interpreter
 import numpy as np
 import tensorflow as tf
 
 
 def representative_dataset(samples: np.ndarray, limit: int = 128) -> Iterable[list[np.ndarray]]:
-    """Yield representative spectra for full INT8 TFLite calibration."""
-    calibration = samples[: min(limit, samples.shape[0])].astype(np.float32)
+    """Yield shape-correct representative batches for full INT8 calibration."""
+    calibration = np.asarray(samples[: min(limit, samples.shape[0])], dtype=np.float32)
     for sample in calibration:
-        yield [sample[None, :, None]]
+        if sample.ndim == 1:
+            sample = sample[:, None]
+        yield [sample[None, ...]]
 
 
 def convert_model_to_int8_tflite(
@@ -21,37 +25,86 @@ def convert_model_to_int8_tflite(
     inference_type: tf.dtypes.DType = tf.int8,
 ) -> None:
     """Export a Keras model using full integer post-training quantization."""
+    samples = np.asarray(calibration_samples)
+    if samples.ndim not in (2, 3) or samples.shape[0] < 1:
+        raise ValueError("calibration_samples must have shape [N, L] or [N, L, C].")
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    converter.representative_dataset = lambda: representative_dataset(calibration_samples)
+    converter.representative_dataset = lambda: representative_dataset(samples)
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
     converter.inference_input_type = inference_type
     converter.inference_output_type = inference_type
-    tflite_model = converter.convert()
+
+    # TensorFlow 2.21 can emit this warning for full-INT8 Keras conversion even
+    # when a representative dataset is configured above. Calibration is present
+    # and the generated artifact is subsequently validated as INT8 by tests, so
+    # suppress only this exact TensorFlow-internal false-positive.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Statistics for quantized inputs were expected, but not specified; continuing anyway\.",
+            category=UserWarning,
+            module=r"tensorflow\.lite\.python\.convert",
+        )
+        tflite_model = converter.convert()
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(tflite_model)
 
 
 def run_tflite_inference(model_path: Path, inputs: np.ndarray) -> np.ndarray:
-    """Run one batch through a quantized or float TFLite model."""
     return TFLiteModelRunner(model_path).predict(inputs)
 
 
+def _per_tensor_quantization(details: dict) -> tuple[float, int]:
+    """Read per-tensor quantization parameters from the non-deprecated API."""
+    parameters = details.get("quantization_parameters", {})
+    scales = np.asarray(parameters.get("scales", []), dtype=np.float32)
+    zero_points = np.asarray(parameters.get("zero_points", []), dtype=np.int64)
+    if scales.size != 1 or zero_points.size != 1:
+        raise ValueError("Expected per-tensor quantization parameters for edge inference.")
+    return float(scales[0]), int(zero_points[0])
+
+
 class TFLiteModelRunner:
-    """Reusable TFLite interpreter wrapper for edge-feed loops."""
+    """Reusable LiteRT interpreter wrapper with quantization and dynamic-batch handling."""
 
     def __init__(self, model_path: Path) -> None:
-        self.interpreter = tf.lite.Interpreter(model_path=str(model_path))
+        # TensorFlow's tf.lite.Interpreter is deprecated. LiteRT is the supported
+        # drop-in runtime for .tflite artifacts and preserves the classic API.
+        self.interpreter = Interpreter(model_path=str(model_path))
         self.interpreter.allocate_tensors()
+        self._refresh_details()
+
+    def _refresh_details(self) -> None:
         self.input_details = self.interpreter.get_input_details()[0]
         self.output_details = self.interpreter.get_output_details()[0]
 
+    @staticmethod
+    def _quantize(values: np.ndarray, details: dict) -> np.ndarray:
+        scale, zero_point = _per_tensor_quantization(details)
+        if scale <= 0:
+            raise ValueError("Quantized LiteRT tensor has invalid scale <= 0.")
+        quantized = np.round(values / scale + zero_point)
+        limits = np.iinfo(details["dtype"])
+        return np.clip(quantized, limits.min, limits.max).astype(details["dtype"])
+
     def predict(self, inputs: np.ndarray) -> np.ndarray:
-        input_data = inputs.astype(np.float32)
+        input_data = np.asarray(inputs, dtype=np.float32)
+        expected_shape = tuple(int(value) for value in self.input_details["shape"])
+        if expected_shape != input_data.shape:
+            signature = tuple(int(value) for value in self.input_details.get("shape_signature", expected_shape))
+            can_resize = len(signature) == input_data.ndim and all(
+                expected == actual or expected == -1 for expected, actual in zip(signature, input_data.shape)
+            )
+            if not can_resize:
+                raise ValueError(f"LiteRT input shape {input_data.shape} is incompatible with {signature}.")
+            self.interpreter.resize_tensor_input(self.input_details["index"], input_data.shape, strict=False)
+            self.interpreter.allocate_tensors()
+            self._refresh_details()
 
         if self.input_details["dtype"] in (np.int8, np.uint8):
-            scale, zero_point = self.input_details["quantization"]
-            input_data = np.round(input_data / scale + zero_point).astype(self.input_details["dtype"])
+            input_data = self._quantize(input_data, self.input_details)
         else:
             input_data = input_data.astype(self.input_details["dtype"])
 
@@ -60,6 +113,8 @@ class TFLiteModelRunner:
         output = self.interpreter.get_tensor(self.output_details["index"])
 
         if self.output_details["dtype"] in (np.int8, np.uint8):
-            scale, zero_point = self.output_details["quantization"]
+            scale, zero_point = _per_tensor_quantization(self.output_details)
+            if scale <= 0:
+                raise ValueError("Quantized LiteRT output tensor has invalid scale <= 0.")
             output = (output.astype(np.float32) - zero_point) * scale
         return output.astype(np.float32)

@@ -11,9 +11,11 @@ from sprpcf.ml.dataset import read_table
 
 
 def convert_to_tflite(model_path: Path, output_path: Path, quantization: str, calibration_data: Path | None = None) -> None:
-    """Convert a Keras model to TFLite with optional FP16 or dynamic INT8 quantization."""
-    model = tf.keras.models.load_model(model_path)
-    if quantization == "int8" and calibration_data is not None:
+    """Convert Keras to TFLite without silently downgrading requested INT8 mode."""
+    if quantization == "int8" and calibration_data is None:
+        raise ValueError("Full INT8 quantization requires --calibration-data.")
+    model = tf.keras.models.load_model(model_path, compile=False)
+    if quantization == "int8":
         frame = read_table(calibration_data).dropna(subset=["loss_db_per_cm"])
         spectra, _, _ = normalize_spectra(parse_spectra(frame))
         convert_model_to_int8_tflite(model, output_path, spectra)
@@ -23,8 +25,6 @@ def convert_to_tflite(model_path: Path, output_path: Path, quantization: str, ca
     if quantization == "fp16":
         converter.optimizations = [tf.lite.Optimize.DEFAULT]
         converter.target_spec.supported_types = [tf.float16]
-    elif quantization == "int8":
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
     tflite_model = converter.convert()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(tflite_model)

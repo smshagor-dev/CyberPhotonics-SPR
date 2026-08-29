@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use CyberPhotonics-SPR in research, please cite the software and the associated publication when available."
+title: "CyberPhotonics-SPR"
+type: software
+authors:
+  - family-names: "Islam Shagor"
+    given-names: "Shahanur"
+repository-code: "https://github.com/smshagor-dev/CyberPhotonics-SPR"
+url: "https://github.com/smshagor-dev/CyberPhotonics-SPR"
+license: "Apache-2.0"
+version: "1.0.0rc1"
+keywords:
+  - photonic crystal fiber
+  - surface plasmon resonance
+  - inverse design
+  - physics-informed machine learning
+  - edge AI
+  - COMSOL

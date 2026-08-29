@@ -3,8 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from sprpcf.simulation.metrics import extract_metrics, finite_difference_sensitivity
+from sprpcf.simulation.metrics import extract_metrics, grouped_finite_difference_sensitivity
 from sprpcf.simulation.schema import Geometry
+
+
+SENSITIVITY_GROUP_COLUMNS = ["d_over_lambda", "pitch_um", "metal_thickness_nm", "channel_radius_um"]
+DEFAULT_ANALYTE_RI = (1.33, 1.35, 1.37, 1.39, 1.41)
 
 
 def synthetic_loss_spectrum(
@@ -14,6 +18,7 @@ def synthetic_loss_spectrum(
     noise_std: float = 0.02,
 ) -> np.ndarray:
     """Generate a plausible PCF-SPR loss spectrum for pipeline validation."""
+    geometry.validate()
     lambda_res = (
         520.0
         + 820.0 * (geometry.analyte_ri - 1.33)
@@ -30,31 +35,54 @@ def synthetic_loss_spectrum(
     return baseline + lorentzian + drift + rng.normal(0.0, noise_std, wavelength_nm.size)
 
 
-def sample_geometries(samples: int, rng: np.random.Generator) -> list[Geometry]:
-    """Draw random fabrication-feasible geometries."""
-    return [
-        Geometry(
-            d_over_lambda=float(rng.uniform(0.25, 0.85)),
-            pitch_um=float(rng.uniform(1.0, 3.2)),
-            metal_thickness_nm=float(rng.uniform(20.0, 70.0)),
-            analyte_ri=float(rng.uniform(1.33, 1.41)),
-            channel_radius_um=float(rng.uniform(0.35, 0.9)),
-        )
-        for _ in range(samples)
-    ]
+def sample_geometries(
+    samples: int,
+    rng: np.random.Generator,
+    analyte_ri_values: tuple[float, ...] = DEFAULT_ANALYTE_RI,
+) -> list[Geometry]:
+    """Draw base geometries and pair each with an RI sweep for valid sensitivity labels."""
+    if samples < 1:
+        raise ValueError("samples must be >= 1.")
+    if len(analyte_ri_values) < 2 or len(set(analyte_ri_values)) != len(analyte_ri_values):
+        raise ValueError("analyte_ri_values must contain at least two unique values.")
+
+    geometries: list[Geometry] = []
+    for _ in range(samples):
+        d_over_lambda = float(rng.uniform(0.25, 0.85))
+        pitch_um = float(rng.uniform(1.0, 3.2))
+        metal_thickness_nm = float(rng.uniform(20.0, 70.0))
+        channel_radius_um = float(rng.uniform(0.35, 0.9))
+        for analyte_ri in analyte_ri_values:
+            geometries.append(
+                Geometry(
+                    d_over_lambda=d_over_lambda,
+                    pitch_um=pitch_um,
+                    metal_thickness_nm=metal_thickness_nm,
+                    analyte_ri=float(analyte_ri),
+                    channel_radius_um=channel_radius_um,
+                )
+            )
+    return geometries
 
 
 def build_synthetic_dataset(
     samples: int,
     wavelengths: int = 256,
     seed: int = 7,
+    analyte_ri_values: tuple[float, ...] = DEFAULT_ANALYTE_RI,
 ) -> pd.DataFrame:
-    """Create a training-ready synthetic PCF-SPR dataset."""
-    rng = np.random.default_rng(seed)
-    wavelength_nm = np.linspace(450.0, 900.0, wavelengths)
-    rows: list[dict[str, float | str]] = []
+    """Create a training-ready synthetic PCF-SPR dataset with fixed-geometry RI sweeps.
 
-    for index, geometry in enumerate(sample_geometries(samples, rng)):
+    ``samples`` is the number of base sensor geometries. The number of output rows is
+    ``samples * len(analyte_ri_values)``.
+    """
+    if wavelengths < 16:
+        raise ValueError("wavelengths must be >= 16 for reliable spectral metrics.")
+    rng = np.random.default_rng(seed)
+    wavelength_nm = np.linspace(350.0, 950.0, wavelengths)
+    rows: list[dict[str, float | int | str]] = []
+
+    for index, geometry in enumerate(sample_geometries(samples, rng, analyte_ri_values)):
         loss = synthetic_loss_spectrum(geometry, wavelength_nm, rng)
         metrics = extract_metrics(wavelength_nm, loss)
         rows.append(
@@ -74,9 +102,9 @@ def build_synthetic_dataset(
         )
 
     frame = pd.DataFrame(rows)
-    frame["sensitivity_nm_per_riu"] = finite_difference_sensitivity(
-        frame["lambda_res_nm"].to_numpy(),
-        frame["analyte_ri"].to_numpy(),
+    frame["sensitivity_nm_per_riu"] = grouped_finite_difference_sensitivity(
+        frame,
+        SENSITIVITY_GROUP_COLUMNS,
     )
-    frame["fom_per_riu"] = frame["sensitivity_nm_per_riu"] / frame["fwhm_nm"]
+    frame["fom_per_riu"] = frame["sensitivity_nm_per_riu"].abs() / frame["fwhm_nm"]
     return frame

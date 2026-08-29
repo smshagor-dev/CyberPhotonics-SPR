@@ -9,9 +9,10 @@ import numpy as np
 import pandas as pd
 import torch
 
-from sprpcf.ml.dataset import METRIC_COLUMNS, read_table
+from sprpcf.ml.dataset import CONDITION_COLUMNS, GEOMETRY_COLUMNS, METRIC_COLUMNS, read_table
 from sprpcf.ml.tandem import InverseGenerator
-from sprpcf.simulation.comsol_sweep import run_comsol_sweep, write_dataset
+from sprpcf.simulation.comsol_sweep import run_comsol_geometries, write_dataset
+from sprpcf.simulation.schema import Geometry
 
 
 ComsolRunner = Callable[[pd.DataFrame], pd.DataFrame]
@@ -28,28 +29,31 @@ class ActiveLearningResult:
 
 
 def enable_mc_dropout(model: torch.nn.Module) -> None:
-    """Keep dropout modules stochastic while other layers remain in eval mode."""
+    """Keep trained dropout modules stochastic while all other modules stay in eval mode."""
     model.eval()
+    found = False
     for module in model.modules():
         if isinstance(module, torch.nn.Dropout):
             module.train()
+            found = True
+    if not found:
+        raise ValueError("The inverse model has no Dropout layers; MC-dropout uncertainty is unavailable.")
 
 
 def mc_dropout_inverse_uncertainty(
     inverse: InverseGenerator,
     target_metrics: torch.Tensor,
+    conditions: torch.Tensor,
     passes: int = 32,
-    latent_std: float = 0.1,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Estimate inverse-design uncertainty from stochastic latent/dropout samples."""
+    """Estimate inverse-design epistemic uncertainty with trained MC dropout."""
     if passes < 2:
         raise ValueError("passes must be >= 2 for uncertainty estimation.")
     enable_mc_dropout(inverse)
     predictions: list[torch.Tensor] = []
     with torch.no_grad():
         for _ in range(passes):
-            latent = torch.randn(target_metrics.shape[0], inverse.latent_dim, device=target_metrics.device) * latent_std
-            predictions.append(inverse(target_metrics, latent))
+            predictions.append(inverse(target_metrics, conditions))
     stacked = torch.stack(predictions, dim=0)
     return stacked.mean(dim=0), stacked.std(dim=0)
 
@@ -59,29 +63,60 @@ def select_uncertain_candidates(
     candidate_metrics: pd.DataFrame,
     metric_mean: np.ndarray,
     metric_scale: np.ndarray,
+    condition_mean: np.ndarray,
+    condition_scale: np.ndarray,
+    geometry_mean: np.ndarray,
+    geometry_scale: np.ndarray,
     uncertainty_threshold: float,
     passes: int = 32,
-    latent_std: float = 0.1,
     device: str = "cpu",
 ) -> ActiveLearningResult:
-    """Rank target metrics by inverse-model uncertainty and return selected rows."""
-    missing = [column for column in METRIC_COLUMNS if column not in candidate_metrics]
+    """Rank targets by MC-dropout uncertainty and attach generated physical geometries."""
+    required = METRIC_COLUMNS + CONDITION_COLUMNS
+    missing = [column for column in required if column not in candidate_metrics]
     if missing:
-        raise ValueError(f"Missing metric columns: {missing}")
+        raise ValueError(f"Missing active-learning columns: {missing}")
+
     torch_device = torch.device(device)
     inverse = inverse.to(torch_device)
     metrics = candidate_metrics[METRIC_COLUMNS].to_numpy(np.float32)
-    standardized = (metrics - metric_mean.astype(np.float32)) / metric_scale.astype(np.float32)
-    _, std_geometry = mc_dropout_inverse_uncertainty(
+    conditions = candidate_metrics[CONDITION_COLUMNS].to_numpy(np.float32)
+    standardized_metrics = (metrics - metric_mean.astype(np.float32)) / metric_scale.astype(np.float32)
+    standardized_conditions = (conditions - condition_mean.astype(np.float32)) / condition_scale.astype(np.float32)
+    mean_geometry, std_geometry = mc_dropout_inverse_uncertainty(
         inverse,
-        torch.tensor(standardized, dtype=torch.float32, device=torch_device),
+        torch.tensor(standardized_metrics, dtype=torch.float32, device=torch_device),
+        torch.tensor(standardized_conditions, dtype=torch.float32, device=torch_device),
         passes=passes,
-        latent_std=latent_std,
     )
+
+    mean_physical = mean_geometry.cpu().numpy() * geometry_scale.astype(np.float32) + geometry_mean.astype(np.float32)
+    lower = np.array([0.8, 0.20, 15.0, 0.20], dtype=np.float32)
+    upper = np.array([4.0, 0.90, 80.0, 1.50], dtype=np.float32)
+    mean_physical = np.clip(mean_physical, lower, upper)
+    # Dimensionless uncertainty avoids metal-thickness units dominating the norm.
     uncertainty = std_geometry.norm(dim=1).cpu().numpy()
-    selected = candidate_metrics.loc[uncertainty > uncertainty_threshold].copy()
-    selected["uncertainty"] = uncertainty[uncertainty > uncertainty_threshold]
-    return ActiveLearningResult(candidate_metrics=candidate_metrics, uncertainty=uncertainty, selected=selected)
+    enriched = candidate_metrics.copy()
+    for index, column in enumerate(GEOMETRY_COLUMNS):
+        enriched[column] = mean_physical[:, index]
+    enriched["uncertainty"] = uncertainty
+    selected = enriched.loc[uncertainty > uncertainty_threshold].copy()
+    return ActiveLearningResult(candidate_metrics=enriched, uncertainty=uncertainty, selected=selected)
+
+
+def _selected_to_geometries(selected: pd.DataFrame) -> list[Geometry]:
+    geometries: list[Geometry] = []
+    for row in selected.to_dict(orient="records"):
+        geometry = Geometry(
+            d_over_lambda=float(row["d_over_lambda"]),
+            pitch_um=float(row["pitch_um"]),
+            metal_thickness_nm=float(row["metal_thickness_nm"]),
+            analyte_ri=float(row["analyte_ri"]),
+            channel_radius_um=float(row["channel_radius_um"]),
+        )
+        geometry.validate()
+        geometries.append(geometry)
+    return geometries
 
 
 def trigger_comsol_for_uncertain_candidates(
@@ -91,17 +126,13 @@ def trigger_comsol_for_uncertain_candidates(
     output_path: Path,
     runner: ComsolRunner | None = None,
 ) -> ActiveLearningResult:
-    """Run COMSOL for uncertain candidates.
-
-    A custom runner can be injected for tests or schedulers. Without one, this
-    calls the configured COMSOL sweep adapter.
-    """
+    """Run COMSOL only for the geometries selected by uncertainty acquisition."""
     if result.selected.empty:
         return result
     if runner is not None:
         comsol_results = runner(result.selected)
     else:
-        comsol_results = run_comsol_sweep(model_path, config_path)
+        comsol_results = run_comsol_geometries(model_path, config_path, _selected_to_geometries(result.selected))
     write_dataset(comsol_results, output_path)
     return ActiveLearningResult(
         candidate_metrics=result.candidate_metrics,
@@ -111,12 +142,21 @@ def trigger_comsol_for_uncertain_candidates(
     )
 
 
-def load_checkpoint_inverse(checkpoint_path: Path) -> tuple[InverseGenerator, np.ndarray, np.ndarray]:
-    """Load inverse generator and metric scaler values from a tandem checkpoint."""
+def load_checkpoint_inverse(
+    checkpoint_path: Path,
+) -> tuple[InverseGenerator, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     inverse = InverseGenerator()
     inverse.load_state_dict(checkpoint["inverse_state_dict"])
-    return inverse, np.asarray(checkpoint["metric_mean"], dtype=np.float32), np.asarray(checkpoint["metric_scale"], dtype=np.float32)
+    return (
+        inverse,
+        np.asarray(checkpoint["metric_mean"], dtype=np.float32),
+        np.asarray(checkpoint["metric_scale"], dtype=np.float32),
+        np.asarray(checkpoint["condition_mean"], dtype=np.float32),
+        np.asarray(checkpoint["condition_scale"], dtype=np.float32),
+        np.asarray(checkpoint["geometry_mean"], dtype=np.float32),
+        np.asarray(checkpoint["geometry_scale"], dtype=np.float32),
+    )
 
 
 def run_active_learning_iteration(
@@ -125,14 +165,18 @@ def run_active_learning_iteration(
     uncertainty_threshold: float,
     passes: int = 32,
 ) -> ActiveLearningResult:
-    """Convenience helper for file-based active-learning acquisition."""
-    inverse, metric_mean, metric_scale = load_checkpoint_inverse(checkpoint_path)
+    values = load_checkpoint_inverse(checkpoint_path)
+    inverse, metric_mean, metric_scale, condition_mean, condition_scale, geometry_mean, geometry_scale = values
     candidates = read_table(candidate_path)
     return select_uncertain_candidates(
         inverse=inverse,
         candidate_metrics=candidates,
         metric_mean=metric_mean,
         metric_scale=metric_scale,
+        condition_mean=condition_mean,
+        condition_scale=condition_scale,
+        geometry_mean=geometry_mean,
+        geometry_scale=geometry_scale,
         uncertainty_threshold=uncertainty_threshold,
         passes=passes,
     )
@@ -145,11 +189,26 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=0.05)
     parser.add_argument("--passes", type=int, default=32)
     parser.add_argument("--out", type=Path, default=Path("outputs/uncertain_candidates.csv"))
+    parser.add_argument("--comsol-model", type=Path, default=None)
+    parser.add_argument("--comsol-config", type=Path, default=None)
+    parser.add_argument("--comsol-out", type=Path, default=None)
     args = parser.parse_args()
 
     result = run_active_learning_iteration(args.checkpoint, args.candidates, args.threshold, args.passes)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     result.selected.to_csv(args.out, index=False)
+
+    comsol_args = [args.comsol_model, args.comsol_config, args.comsol_out]
+    if any(value is not None for value in comsol_args):
+        if not all(value is not None for value in comsol_args):
+            parser.error("--comsol-model, --comsol-config, and --comsol-out must be supplied together.")
+        result = trigger_comsol_for_uncertain_candidates(
+            result,
+            args.comsol_model,
+            args.comsol_config,
+            args.comsol_out,
+        )
+
     print(f"Selected {len(result.selected)} uncertain candidates out of {len(result.candidate_metrics)}.")
     print(f"Wrote {args.out}")
 

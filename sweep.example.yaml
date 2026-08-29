@@ -1,6 +1,13 @@
 study: std1
 wavelength_expression: lambda
 loss_expression: loss
+
+# Explicit unit contract. Example below assumes COMSOL wavelength expression is already nm
+# and confinement loss is already dB/cm. If wavelength is returned in meters, use 1.0e9.
+wavelength_scale_to_nm: 1.0
+loss_scale_to_db_per_cm: 1.0
+expected_wavelength_nm: [400.0, 1000.0]
+
 sweep:
   d_over_lambda: [0.35, 0.45, 0.55, 0.65]
   pitch_um: [1.4, 1.8, 2.2]

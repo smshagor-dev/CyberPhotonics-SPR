@@ -101,6 +101,7 @@ def synthetic_feature_importance(prediction: GeometryPrediction) -> pd.DataFrame
             0.40 + 0.08 * prediction.pitch_um,
             0.55 + 0.45 * prediction.d_over_lambda,
             0.28 + 0.012 * prediction.metal_thickness_nm,
+            0.32 + 0.06 * prediction.pitch_um,
         ],
         dtype=np.float32,
     )

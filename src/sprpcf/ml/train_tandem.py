@@ -12,10 +12,11 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import trange
 
-from sprpcf.ml.dataset import DesignDataModule, GEOMETRY_COLUMNS, METRIC_COLUMNS
-from sprpcf.ml.losses import geometry_constraint_loss
+from sprpcf.ml.dataset import CONDITION_COLUMNS, DesignDataModule, GEOMETRY_COLUMNS, METRIC_COLUMNS
+from sprpcf.ml.losses import clamp_physical_geometry, geometry_constraint_loss
 from sprpcf.ml.onnx_export import export_inverse_generator_onnx
 from sprpcf.ml.tandem import ForwardNetwork, InverseGenerator, TandemNetwork
+from sprpcf.utils.reproducibility import seed_everything
 
 
 def _select_device(name: str) -> torch.device:
@@ -35,15 +36,16 @@ def _regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, flo
     }
 
 
-def evaluate_forward(model: ForwardNetwork, loader: DataLoader, device: torch.device) -> dict[str, float]:
+def evaluate_forward(model: ForwardNetwork, loader: DataLoader, data: DesignDataModule, device: torch.device) -> dict[str, float]:
     model.eval()
     truth: list[np.ndarray] = []
     pred: list[np.ndarray] = []
     with torch.no_grad():
-        for geometry, metrics in loader:
-            output = model(geometry.to(device)).cpu().numpy()
-            pred.append(output)
-            truth.append(metrics.numpy())
+        for geometry, conditions, metrics in loader:
+            forward_input = torch.cat([geometry, conditions], dim=-1).to(device)
+            output = model(forward_input).cpu().numpy()
+            pred.append(data.metric_scaler.inverse_transform(output))
+            truth.append(data.metric_scaler.inverse_transform(metrics.numpy()))
     return _regression_metrics(np.concatenate(truth), np.concatenate(pred))
 
 
@@ -57,9 +59,11 @@ def evaluate_inverse_geometry(
     truth: list[np.ndarray] = []
     pred: list[np.ndarray] = []
     with torch.no_grad():
-        for geometry, metrics in loader:
-            generated = inverse(metrics.to(device)).cpu().numpy()
-            pred.append(data.geometry_scaler.inverse_transform(generated))
+        for geometry, conditions, metrics in loader:
+            generated = inverse(metrics.to(device), conditions.to(device)).cpu().numpy()
+            generated_physical = data.geometry_scaler.inverse_transform(generated)
+            generated_tensor = clamp_physical_geometry(torch.tensor(generated_physical, dtype=torch.float32))
+            pred.append(generated_tensor.numpy())
             truth.append(data.geometry_scaler.inverse_transform(geometry.numpy()))
     return _regression_metrics(np.concatenate(truth), np.concatenate(pred))
 
@@ -69,10 +73,10 @@ def train_forward(data: DesignDataModule, epochs: int, lr: float, device: torch.
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     for _ in trange(epochs, desc="forward"):
         model.train()
-        for geometry, metrics in data.train_loader():
-            geometry = geometry.to(device)
+        for geometry, conditions, metrics in data.train_loader():
+            forward_input = torch.cat([geometry, conditions], dim=-1).to(device)
             metrics = metrics.to(device)
-            loss = F.mse_loss(model(geometry), metrics)
+            loss = F.mse_loss(model(forward_input), metrics)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -102,10 +106,14 @@ def train_inverse(
 
     for _ in trange(epochs, desc="inverse"):
         inverse.train()
-        for _, target_metrics in data.train_loader():
+        for _, conditions, target_metrics in data.train_loader():
+            conditions = conditions.to(device)
             target_metrics = target_metrics.to(device)
-            generated_geometry = inverse(target_metrics)
-            predicted_metrics = forward_model(generated_geometry)
+            latent = torch.randn(
+                target_metrics.shape[0], inverse.latent_dim, dtype=target_metrics.dtype, device=device
+            ) * 0.05
+            generated_geometry = inverse(target_metrics, conditions, latent)
+            predicted_metrics = forward_model(torch.cat([generated_geometry, conditions], dim=-1))
             physical_geometry = generated_geometry * geometry_scale + geometry_mean
             loss = F.mse_loss(predicted_metrics, target_metrics) + geometry_constraint_loss(
                 physical_geometry,
@@ -131,18 +139,20 @@ def train_tandem_pipeline(
     lr: float = 1e-3,
     device_name: str = "auto",
     alpha: float = 1.0,
-    beta: float = 1e-3,
+    beta: float = 1.0,
     dispersion_weight: float = 0.0,
+    seed: int = 7,
 ) -> dict[str, dict[str, float]]:
     """Train forward and inverse tandem networks and export the inverse generator."""
+    seed_everything(seed)
     device = _select_device(device_name)
     resolved_forward_epochs = forward_epochs if forward_epochs is not None else epochs
     resolved_inverse_epochs = inverse_epochs if inverse_epochs is not None else epochs
 
-    data = DesignDataModule(data_path, batch_size=batch_size)
+    data = DesignDataModule(data_path, batch_size=batch_size, seed=seed)
     data.setup()
     forward = train_forward(data, resolved_forward_epochs, lr, device)
-    forward_metrics = evaluate_forward(forward, data.val_loader(), device)
+    forward_metrics = evaluate_forward(forward, data.val_loader(), data, device)
     inverse = train_inverse(data, forward, resolved_inverse_epochs, lr, device, alpha, beta, dispersion_weight)
     inverse_metrics = evaluate_inverse_geometry(inverse, data.val_loader(), data, device)
     tandem = TandemNetwork(forward, inverse)
@@ -152,14 +162,18 @@ def train_tandem_pipeline(
         "model": tandem.state_dict(),
         "forward_state_dict": forward.state_dict(),
         "inverse_state_dict": inverse.state_dict(),
-        "forward_metrics_standardized": forward_metrics,
+        "forward_metrics_physical": forward_metrics,
         "inverse_geometry_metrics_physical": inverse_metrics,
         "geometry_columns": GEOMETRY_COLUMNS,
+        "condition_columns": CONDITION_COLUMNS,
         "metric_columns": METRIC_COLUMNS,
         "geometry_mean": data.geometry_scaler.mean_,
         "geometry_scale": data.geometry_scaler.scale_,
+        "condition_mean": data.condition_scaler.mean_,
+        "condition_scale": data.condition_scaler.scale_,
         "metric_mean": data.metric_scaler.mean_,
         "metric_scale": data.metric_scaler.scale_,
+        "seed": seed,
     }
     torch.save(checkpoint, checkpoint_out)
     export_inverse_generator_onnx(
@@ -167,6 +181,8 @@ def train_tandem_pipeline(
         onnx_out,
         data.metric_scaler.mean_,
         data.metric_scaler.scale_,
+        data.condition_scaler.mean_,
+        data.condition_scaler.scale_,
         data.geometry_scaler.mean_,
         data.geometry_scaler.scale_,
     )
@@ -183,8 +199,9 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, or cuda:N")
     parser.add_argument("--alpha", type=float, default=1.0, help="Air-hole overlap penalty weight.")
-    parser.add_argument("--beta", type=float, default=1e-3, help="Metal-thickness boundary penalty weight.")
+    parser.add_argument("--beta", type=float, default=1.0, help="Fabrication-boundary penalty weight.")
     parser.add_argument("--dispersion-weight", type=float, default=0.0, help="Sellmeier/Drude dispersion penalty weight.")
+    parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--out", type=Path, default=Path("models/tandem.pt"))
     parser.add_argument("--onnx-out", type=Path, default=Path("models/inverse_pcf_spr.onnx"))
     args = parser.parse_args()
@@ -202,6 +219,7 @@ def main() -> None:
         alpha=args.alpha,
         beta=args.beta,
         dispersion_weight=args.dispersion_weight,
+        seed=args.seed,
     )
     print(json.dumps(metrics, indent=2))
 

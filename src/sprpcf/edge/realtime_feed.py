@@ -7,37 +7,45 @@ from pathlib import Path
 import numpy as np
 import tensorflow as tf
 
-from sprpcf.edge.train_denoiser import parse_spectra
+from sprpcf.edge.train_denoiser import normalize_spectra, parse_spectra
 from sprpcf.ml.dataset import read_table
 from sprpcf.simulation.metrics import resonance_wavelength
 
 
+def _simulate_noisy_measurement(spectrum: np.ndarray, rng: np.random.Generator, noise_std: float) -> np.ndarray:
+    """Create a noisy physical-domain measurement from a stored clean spectrum."""
+    signal_scale = max(float(np.std(spectrum)), 1e-6)
+    return spectrum + rng.normal(0.0, noise_std * signal_scale, spectrum.shape)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Simulate real-time noisy PCF-SPR spectral feed.")
+    parser = argparse.ArgumentParser(description="Replay stored PCF-SPR spectra as a simulated real-time sensor feed.")
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--ri-model", type=Path, default=None)
     parser.add_argument("--interval", type=float, default=0.25)
     parser.add_argument("--frames", type=int, default=20)
+    parser.add_argument("--noise-std", type=float, default=0.08, help="Noise as a fraction of spectrum standard deviation.")
     args = parser.parse_args()
 
     frame = read_table(args.data).dropna(subset=["loss_db_per_cm", "wavelength_nm"])
     spectra = parse_spectra(frame)
     wavelengths = np.asarray(
-        [np.fromstring(value, sep=",") for value in frame["wavelength_nm"].to_list()],
+        [np.fromstring(str(value), sep=",") for value in frame["wavelength_nm"].to_list()],
         dtype=np.float32,
     )
-    mean = spectra.mean(axis=1, keepdims=True)
-    std = spectra.std(axis=1, keepdims=True) + 1e-6
-    normalized = (spectra - mean) / std
-    model = tf.keras.models.load_model(args.model)
-    ri_model = tf.keras.models.load_model(args.ri_model) if args.ri_model is not None else None
+    if wavelengths.shape != spectra.shape:
+        raise ValueError("wavelength_nm and loss_db_per_cm arrays must have matching shapes.")
+
+    model = tf.keras.models.load_model(args.model, compile=False)
+    ri_model = tf.keras.models.load_model(args.ri_model, compile=False) if args.ri_model is not None else None
     rng = np.random.default_rng(11)
 
-    for index in range(min(args.frames, normalized.shape[0])):
-        noisy = normalized[index] + rng.normal(0.0, 0.08, normalized[index].shape)
-        denoised = model.predict(noisy[None, :, None], verbose=0)[0, :, 0]
-        physical_denoised = denoised * std[index, 0] + mean[index, 0]
+    for index in range(min(args.frames, spectra.shape[0])):
+        measured = _simulate_noisy_measurement(spectra[index], rng, args.noise_std)
+        normalized, mean, std = normalize_spectra(measured[None, :])
+        denoised = model.predict(normalized[..., None], verbose=0)[0, :, 0]
+        physical_denoised = denoised * std[0, 0] + mean[0, 0]
         lambda_res, peak_loss = resonance_wavelength(wavelengths[index], physical_denoised)
         ri_text = ""
         if ri_model is not None:

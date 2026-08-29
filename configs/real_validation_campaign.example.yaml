@@ -1,0 +1,41 @@
+schema_version: 1
+campaign_id: real-validation-campaign
+
+registry: outputs/real_validation/evidence/evidence_registry.json
+reviewer_package: outputs/real_validation/reviewer_package
+submission_package: outputs/real_validation/submission_package
+
+comsol:
+  checkpoint: models/tandem.pt
+  targets: data/processed/validation_targets.csv
+  base_data: data/processed/dataset.parquet
+  model: REPLACE_WITH_VALIDATED_COMSOL_MODEL.mph
+  config: configs/comsol_sweep.example.yaml
+  output_dir: outputs/real_validation/comsol
+  passes: 32
+  ri_span: 0.04
+  ri_points: 5
+  seed: 7
+
+experiment:
+  raw_data:
+    - outputs/real_validation/experiment/raw/ri_1.33_rep1.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.33_rep2.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.35_rep1.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.35_rep2.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.37_rep1.jsonl
+    - outputs/real_validation/experiment/raw/ri_1.37_rep2.jsonl
+  protocol: outputs/real_validation/experiment/EXPERIMENT_PROTOCOL.md
+  calibration: outputs/real_validation/experiment/calibration.json
+  instrument_id: REPLACE_WITH_INSTRUMENT_ID
+  acquired_at: REPLACE_WITH_TIMEZONE_AWARE_ISO8601
+  measurement_manifest: outputs/real_validation/experiment/experimental_measurements.yaml
+  analysis_output_dir: outputs/real_validation/experiment/analysis
+
+device:
+  benchmark: outputs/real_validation/device/benchmark.json
+  model: models/denoiser_int8.tflite
+  device_name: REPLACE_WITH_EXACT_DEVICE_NAME
+  os_name: REPLACE_WITH_EXACT_OS_IMAGE
+  runtime: LiteRT
+  accelerator: REPLACE_IF_APPLICABLE

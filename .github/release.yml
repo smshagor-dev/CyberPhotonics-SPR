@@ -1,0 +1,38 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+      - internal
+  categories:
+    - title: "Publication, reviewer, and submission tooling"
+      labels:
+        - publication
+        - reviewer
+        - submission
+        - release-candidate
+    - title: "Research and scientific validation"
+      labels:
+        - research
+        - validation
+        - science
+    - title: "AI and inverse design"
+      labels:
+        - ai
+        - ml
+        - inverse-design
+    - title: "Edge, hardware, and deployment"
+      labels:
+        - edge
+        - hardware
+        - deployment
+    - title: "Documentation and reproducibility"
+      labels:
+        - documentation
+        - reproducibility
+    - title: "Fixes"
+      labels:
+        - bug
+        - fix
+    - title: "Other changes"
+      labels:
+        - "*"
