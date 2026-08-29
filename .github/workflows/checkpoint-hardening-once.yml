@@ -1,0 +1,189 @@
+name: Checkpoint Hardening Once
+
+on:
+  push:
+    branches: [chore/governance-hardening-final]
+    paths:
+      - ".github/workflows/checkpoint-hardening-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: chore/governance-hardening-final
+      - name: Replace unsafe checkpoint deserialization
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          checkpoint_io = root / 'src/sprpcf/ml/checkpoint_io.py'
+          checkpoint_io.write_text('''from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+
+
+_SCALER_KEYS = {
+    "geometry_mean",
+    "geometry_scale",
+    "condition_mean",
+    "condition_scale",
+    "metric_mean",
+    "metric_scale",
+}
+
+
+def _safe_value(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return torch.from_numpy(np.ascontiguousarray(value))
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {key: _safe_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_safe_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_safe_value(item) for item in value)
+    return value
+
+
+def save_tandem_checkpoint(checkpoint: dict[str, Any], path: Path) -> None:
+    """Persist a weights-only-compatible checkpoint without NumPy pickle globals."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(_safe_value(checkpoint), path)
+
+
+def load_tandem_checkpoint(path: Path) -> dict[str, Any]:
+    """Load a checkpoint without permitting arbitrary pickle execution."""
+    path = Path(path)
+    try:
+        checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Refusing to deserialize unsafe or legacy checkpoint: {path}. "
+            "Regenerate the checkpoint with the current CyberPhotonics-SPR training pipeline."
+        ) from exc
+    if not isinstance(checkpoint, dict):
+        raise ValueError(f"Checkpoint must contain a mapping: {path}")
+    for key in _SCALER_KEYS:
+        value = checkpoint.get(key)
+        if isinstance(value, torch.Tensor):
+            checkpoint[key] = value.detach().cpu().numpy()
+    return checkpoint
+''', encoding='utf-8')
+
+          load_files = [
+              root / 'src/sprpcf/ml/active_learning.py',
+              root / 'src/sprpcf/ml/ensemble.py',
+              root / 'src/sprpcf/ml/explainability.py',
+              root / 'src/sprpcf/ml/export_onnx.py',
+              root / 'src/sprpcf/ml/multiobjective.py',
+              root / 'src/sprpcf/validation/benchmark.py',
+          ]
+          pattern = re.compile(r'torch\.load\(([^,\n]+), map_location="cpu", weights_only=False\)')
+          for path in load_files:
+              text = path.read_text(encoding='utf-8')
+              if 'from sprpcf.ml.checkpoint_io import load_tandem_checkpoint' not in text:
+                  marker = 'import torch\n'
+                  if marker not in text:
+                      raise RuntimeError(f'Expected torch import in {path}')
+                  text = text.replace(
+                      marker,
+                      marker + '\nfrom sprpcf.ml.checkpoint_io import load_tandem_checkpoint\n',
+                      1,
+                  )
+              text, count = pattern.subn(r'load_tandem_checkpoint(\1)', text)
+              if count < 1:
+                  raise RuntimeError(f'No unsafe torch.load replacement made in {path}')
+              path.write_text(text, encoding='utf-8')
+
+          train = root / 'src/sprpcf/ml/train_tandem.py'
+          text = train.read_text(encoding='utf-8')
+          if 'from sprpcf.ml.checkpoint_io import save_tandem_checkpoint' not in text:
+              text = text.replace(
+                  'from sprpcf.ml.dataset import CONDITION_COLUMNS, DesignDataModule, GEOMETRY_COLUMNS, METRIC_COLUMNS\n',
+                  'from sprpcf.ml.checkpoint_io import save_tandem_checkpoint\n'
+                  'from sprpcf.ml.dataset import CONDITION_COLUMNS, DesignDataModule, GEOMETRY_COLUMNS, METRIC_COLUMNS\n',
+                  1,
+              )
+          if 'torch.save(checkpoint, checkpoint_out)' not in text:
+              raise RuntimeError('Expected torch.save call in train_tandem.py')
+          text = text.replace('torch.save(checkpoint, checkpoint_out)', 'save_tandem_checkpoint(checkpoint, checkpoint_out)', 1)
+          train.write_text(text, encoding='utf-8')
+
+          governance = root / 'scripts/configure_github_repository.py'
+          text = governance.read_text(encoding='utf-8')
+          if 'from urllib.parse import urlparse' not in text:
+              text = text.replace('import urllib.request\n', 'import urllib.request\nfrom urllib.parse import urlparse\n', 1)
+          old = '    data = None if payload is None else json.dumps(payload).encode("utf-8")\n'
+          new = (
+              '    parsed = urlparse(url)\n'
+              '    if parsed.scheme != "https" or parsed.hostname != "api.github.com":\n'
+              '        raise ValueError("Only https://api.github.com requests are permitted.")\n'
+              '    data = None if payload is None else json.dumps(payload).encode("utf-8")\n'
+          )
+          if old not in text:
+              raise RuntimeError('Expected governance request preamble')
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              '        with urllib.request.urlopen(request, timeout=30) as response:\n',
+              '        with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 -- host/scheme allowlisted above\n',
+              1,
+          )
+          governance.write_text(text, encoding='utf-8')
+
+          tests = root / 'tests/test_checkpoint_io.py'
+          tests.write_text('''from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+
+from sprpcf.ml.checkpoint_io import load_tandem_checkpoint, save_tandem_checkpoint
+
+
+def test_safe_checkpoint_round_trip_converts_numpy_scalers(tmp_path: Path) -> None:
+    path = tmp_path / "safe.pt"
+    payload = {
+        "inverse_state_dict": {"weight": torch.tensor([1.0, 2.0])},
+        "geometry_mean": np.array([1.0, 2.0], dtype=np.float64),
+        "metric_scale": np.array([3.0, 4.0], dtype=np.float32),
+        "seed": 7,
+    }
+    save_tandem_checkpoint(payload, path)
+    loaded = load_tandem_checkpoint(path)
+    np.testing.assert_allclose(loaded["geometry_mean"], [1.0, 2.0])
+    np.testing.assert_allclose(loaded["metric_scale"], [3.0, 4.0])
+    assert loaded["seed"] == 7
+
+
+def test_safe_loader_refuses_legacy_numpy_pickle_checkpoint(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.pt"
+    torch.save({"geometry_mean": np.array([1.0, 2.0])}, path)
+    with pytest.raises(RuntimeError, match="Refusing to deserialize unsafe or legacy checkpoint"):
+        load_tandem_checkpoint(path)
+''', encoding='utf-8')
+          PY
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/checkpoint-hardening-once.yml
+      - name: Commit hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src scripts tests .github/workflows/checkpoint-hardening-once.yml
+          git commit -m "fix(security): use weights-only checkpoint loading"
+          git push origin HEAD:chore/governance-hardening-final
