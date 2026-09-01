@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import secrets
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -91,6 +92,31 @@ def _validate_runner_results(frame: pd.DataFrame, expected_samples: int) -> pd.D
     if ids.duplicated().any() or set(ids.tolist()) != set(range(expected_samples)):
         raise RuntimeError("COMSOL runner returned invalid sample_id values.")
     return frame.sort_values("sample_id").reset_index(drop=True)
+
+
+def _json_safe_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except (TypeError, ValueError):
+            pass
+    return value
+
+
+def _json_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return [
+        {key: _json_safe_value(value) for key, value in row.items()}
+        for row in frame.to_dict(orient="records")
+    ]
 
 
 def create_comsol_api_server(
@@ -184,7 +210,7 @@ def create_comsol_api_server(
                 HTTPStatus.OK,
                 {
                     "schema_version": PROTOCOL_VERSION,
-                    "results": results.to_dict(orient="records"),
+                    "results": _json_records(results),
                     "provenance": {
                         "evidence_class": "comsol_physics",
                         "model_sha256": context.model_sha256,
