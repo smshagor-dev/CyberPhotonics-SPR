@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+import numpy as np
 import pandas as pd
 
 from sprpcf.simulation.schema import Geometry
@@ -17,6 +18,13 @@ PROTOCOL_VERSION = 1
 DEFAULT_TOKEN_ENV = "SPR_COMSOL_API_TOKEN"
 DEFAULT_URL_ENV = "SPR_COMSOL_API_URL"
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+GEOMETRY_FIELDS = (
+    "pitch_um",
+    "d_over_lambda",
+    "metal_thickness_nm",
+    "channel_radius_um",
+    "analyte_ri",
+)
 
 
 @dataclass(frozen=True)
@@ -68,9 +76,10 @@ def normalize_base_url(value: str) -> str:
         raise ValueError("Do not embed credentials in the remote COMSOL URL; use a bearer-token environment variable.")
     if parsed.query or parsed.fragment:
         raise ValueError("Remote COMSOL base URL must not contain query parameters or fragments.")
-    netloc = parsed.hostname
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    netloc = host
     if parsed.port is not None:
-        netloc = f"{netloc}:{parsed.port}"
+        netloc = f"{host}:{parsed.port}"
     path = parsed.path.rstrip("/")
     return urlunsplit((parsed.scheme, netloc, path, "", ""))
 
@@ -99,7 +108,8 @@ def _read_limited(response: Any, limit: int = MAX_RESPONSE_BYTES) -> bytes:
     return body
 
 
-def _parse_response(body: bytes, expected_samples: int) -> pd.DataFrame:
+def _parse_response(body: bytes, geometries: Sequence[Geometry]) -> pd.DataFrame:
+    expected_samples = len(geometries)
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -116,17 +126,11 @@ def _parse_response(body: bytes, expected_samples: int) -> pd.DataFrame:
             f"Remote COMSOL returned {len(results)} rows for {expected_samples} requested samples."
         )
     frame = pd.DataFrame(results)
+    provenance = payload.get("provenance")
+    frame.attrs["remote_provenance"] = provenance if isinstance(provenance, dict) else {}
     if expected_samples == 0:
         return frame
-    required = [
-        "sample_id",
-        "status",
-        "pitch_um",
-        "d_over_lambda",
-        "metal_thickness_nm",
-        "channel_radius_um",
-        "analyte_ri",
-    ]
+    required = ["sample_id", "status", *GEOMETRY_FIELDS]
     missing = [column for column in required if column not in frame.columns]
     if missing:
         raise RuntimeError(f"Remote COMSOL results are missing required columns: {missing}")
@@ -136,7 +140,18 @@ def _parse_response(body: bytes, expected_samples: int) -> pd.DataFrame:
     expected_ids = set(range(expected_samples))
     if set(ids.tolist()) != expected_ids:
         raise RuntimeError("Remote COMSOL results do not match the requested sample IDs.")
-    return frame.sort_values("sample_id").reset_index(drop=True)
+    frame = frame.sort_values("sample_id").reset_index(drop=True)
+    for sample_id, geometry in enumerate(geometries):
+        row = frame.iloc[sample_id]
+        for field in GEOMETRY_FIELDS:
+            actual = float(row[field])
+            expected = float(getattr(geometry, field))
+            if not np.isclose(actual, expected, rtol=0.0, atol=1e-10):
+                raise RuntimeError(
+                    f"Remote COMSOL geometry mismatch for sample_id={sample_id}, field={field}."
+                )
+    frame.attrs["remote_provenance"] = provenance if isinstance(provenance, dict) else {}
+    return frame
 
 
 def run_remote_comsol_geometries(
@@ -177,4 +192,4 @@ def run_remote_comsol_geometries(
         raise RuntimeError(message) from exc
     except URLError as exc:
         raise RuntimeError(f"Could not reach the remote COMSOL server: {exc.reason}") from exc
-    return _parse_response(response_body, expected_samples=len(geometries))
+    return _parse_response(response_body, geometries=geometries)
