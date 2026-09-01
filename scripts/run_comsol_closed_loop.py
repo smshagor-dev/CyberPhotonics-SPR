@@ -53,7 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _annotate_remote_manifest(path: Path, settings: RemoteComsolSettings, token_env: str) -> None:
+def _annotate_remote_manifest(
+    path: Path,
+    settings: RemoteComsolSettings,
+    token_env: str,
+    server_provenance: dict[str, object],
+) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["execution_transport"] = "remote_comsol_api"
     payload["remote_comsol"] = {
@@ -61,6 +66,7 @@ def _annotate_remote_manifest(path: Path, settings: RemoteComsolSettings, token_
         "token_env": token_env,
         "token_persisted": False,
         "protocol_version": 1,
+        "server_provenance": server_provenance,
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -72,6 +78,7 @@ def main() -> None:
         parser.error("COMSOL backend requires --comsol-model and --comsol-config.")
 
     remote_settings: RemoteComsolSettings | None = None
+    remote_provenance: dict[str, object] = {}
     runner = None
     core_backend = args.backend
     if args.backend == "remote-comsol":
@@ -83,7 +90,16 @@ def main() -> None:
             ).validated()
         except ValueError as exc:
             parser.error(str(exc))
-        runner = lambda geometries: run_remote_comsol_geometries(remote_settings, geometries)
+
+        def remote_runner(geometries):
+            assert remote_settings is not None
+            frame = run_remote_comsol_geometries(remote_settings, geometries)
+            provenance = frame.attrs.get("remote_provenance", {})
+            if isinstance(provenance, dict):
+                remote_provenance.update(provenance)
+            return frame
+
+        runner = remote_runner
         core_backend = "comsol"
 
     thresholds = AcceptanceThresholds(
@@ -114,7 +130,12 @@ def main() -> None:
         retrain_device=args.retrain_device,
     )
     if remote_settings is not None:
-        _annotate_remote_manifest(artifacts.manifest, remote_settings, args.remote_comsol_token_env)
+        _annotate_remote_manifest(
+            artifacts.manifest,
+            remote_settings,
+            args.remote_comsol_token_env,
+            remote_provenance,
+        )
 
     print(
         json.dumps(
