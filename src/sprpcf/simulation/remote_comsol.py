@@ -176,7 +176,10 @@ def run_remote_comsol_geometries(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=validated.timeout_seconds) as response:
+        # Bandit B310 is intentionally suppressed: normalize_base_url() restricts the
+        # destination to explicit HTTP/HTTPS URLs and rejects embedded credentials,
+        # query strings, and fragments before this request is constructed.
+        with urlopen(request, timeout=validated.timeout_seconds) as response:  # nosec B310
             if response.status != 200:
                 raise RuntimeError(f"Remote COMSOL server returned HTTP {response.status}.")
             response_body = _read_limited(response)
