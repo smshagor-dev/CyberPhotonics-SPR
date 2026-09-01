@@ -9,8 +9,8 @@ if str(SRC_ROOT) not in sys.path:
 
 import argparse
 import json
-from pathlib import Path
 
+from sprpcf.simulation.remote_comsol import RemoteComsolSettings, run_remote_comsol_geometries
 from sprpcf.validation.closed_loop import AcceptanceThresholds, run_closed_loop_iteration
 
 
@@ -22,9 +22,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets", type=Path, required=True)
     parser.add_argument("--base-data", type=Path, required=True)
     parser.add_argument("--out", type=Path, default=Path("outputs/closed_loop"))
-    parser.add_argument("--backend", choices=["comsol", "synthetic"], default="comsol")
+    parser.add_argument("--backend", choices=["comsol", "remote-comsol", "synthetic"], default="comsol")
     parser.add_argument("--comsol-model", type=Path, default=None)
     parser.add_argument("--comsol-config", type=Path, default=None)
+    parser.add_argument(
+        "--remote-comsol-url",
+        default=None,
+        help="Remote API base URL. If omitted, SPR_COMSOL_API_URL is used.",
+    )
+    parser.add_argument(
+        "--remote-comsol-token-env",
+        default="SPR_COMSOL_API_TOKEN",
+        help="Environment variable containing the bearer token. The token is never written to artifacts.",
+    )
+    parser.add_argument("--remote-comsol-timeout", type=float, default=300.0)
     parser.add_argument("--passes", type=int, default=32)
     parser.add_argument("--uncertainty-threshold", type=float, default=None)
     parser.add_argument("--ri-span", type=float, default=0.04)
@@ -42,11 +53,54 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _annotate_remote_manifest(
+    path: Path,
+    settings: RemoteComsolSettings,
+    token_env: str,
+    server_provenance: dict[str, object],
+) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["execution_transport"] = "remote_comsol_api"
+    payload["remote_comsol"] = {
+        "base_url": settings.validated().base_url,
+        "token_env": token_env,
+        "token_persisted": False,
+        "protocol_version": 1,
+        "server_provenance": server_provenance,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     if args.backend == "comsol" and (args.comsol_model is None or args.comsol_config is None):
         parser.error("COMSOL backend requires --comsol-model and --comsol-config.")
+
+    remote_settings: RemoteComsolSettings | None = None
+    remote_provenance: dict[str, object] = {}
+    runner = None
+    core_backend = args.backend
+    if args.backend == "remote-comsol":
+        try:
+            remote_settings = RemoteComsolSettings.from_environment(
+                base_url=args.remote_comsol_url,
+                token_env=args.remote_comsol_token_env,
+                timeout_seconds=args.remote_comsol_timeout,
+            ).validated()
+        except ValueError as exc:
+            parser.error(str(exc))
+
+        def remote_runner(geometries):
+            assert remote_settings is not None
+            frame = run_remote_comsol_geometries(remote_settings, geometries)
+            provenance = frame.attrs.get("remote_provenance", {})
+            if isinstance(provenance, dict):
+                remote_provenance.update(provenance)
+            return frame
+
+        runner = remote_runner
+        core_backend = "comsol"
 
     thresholds = AcceptanceThresholds(
         max_sensitivity_error_nm_per_riu=args.max_sensitivity_error,
@@ -59,7 +113,7 @@ def main() -> None:
         target_path=args.targets,
         base_dataset_path=args.base_data,
         output_dir=args.out,
-        backend=args.backend,
+        backend=core_backend,
         model_path=args.comsol_model,
         config_path=args.comsol_config,
         passes=args.passes,
@@ -69,15 +123,25 @@ def main() -> None:
         thresholds=thresholds,
         device=args.device,
         seed=args.seed,
+        runner=runner,
         retrain=args.retrain,
         retrain_epochs=args.retrain_epochs,
         retrain_batch_size=args.retrain_batch_size,
         retrain_device=args.retrain_device,
     )
+    if remote_settings is not None:
+        _annotate_remote_manifest(
+            artifacts.manifest,
+            remote_settings,
+            args.remote_comsol_token_env,
+            remote_provenance,
+        )
+
     print(
         json.dumps(
             {
-                "backend": artifacts.backend,
+                "backend": args.backend,
+                "evidence_class": "software_only" if args.backend == "synthetic" else "comsol_physics",
                 "selected_targets": artifacts.selected_targets,
                 "accepted_targets": artifacts.accepted_targets,
                 "appended_rows": artifacts.appended_rows,
