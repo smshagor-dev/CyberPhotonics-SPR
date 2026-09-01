@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import secrets
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -126,6 +127,7 @@ def create_comsol_api_server(
 ) -> ThreadingHTTPServer:
     """Create a small dependency-free HTTP API around a COMSOL geometry runner."""
     context.validate()
+    execution_lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "CyberPhotonicsSPRComsolAPI/1"
@@ -198,12 +200,11 @@ def create_comsol_api_server(
                 return
 
             try:
-                results = _validate_runner_results(context.runner(geometries), len(geometries))
+                with execution_lock:
+                    results = _validate_runner_results(context.runner(geometries), len(geometries))
             except Exception as exc:
-                self._send_json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"error": f"COMSOL execution failed: {type(exc).__name__}: {exc}"},
-                )
+                self.log_error("COMSOL execution failed: %s: %s", type(exc).__name__, exc)
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "COMSOL execution failed on server."})
                 return
 
             self._send_json(
