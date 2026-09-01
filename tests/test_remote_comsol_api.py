@@ -49,7 +49,13 @@ def _start_server(runner, token="test-token"):
     server = create_comsol_api_server(
         "127.0.0.1",
         0,
-        ComsolApiContext(runner=runner, token=token, max_geometries=16),
+        ComsolApiContext(
+            runner=runner,
+            token=token,
+            max_geometries=16,
+            model_sha256="model-hash",
+            config_sha256="config-hash",
+        ),
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -70,6 +76,11 @@ def test_remote_client_round_trip_with_bearer_token():
         assert frame["status"].tolist() == ["ok", "ok"]
         assert frame["analyte_ri"].tolist() == pytest.approx([1.33, 1.34])
         assert frame["lambda_res_nm"].tolist() == pytest.approx([700.0, 710.0])
+        assert frame.attrs["remote_provenance"] == {
+            "evidence_class": "comsol_physics",
+            "model_sha256": "model-hash",
+            "config_sha256": "config-hash",
+        }
     finally:
         server.shutdown()
         server.server_close()
@@ -128,6 +139,7 @@ def test_remote_url_rejects_embedded_credentials_and_query_secrets():
     with pytest.raises(ValueError, match="query"):
         normalize_base_url("https://example.com?token=secret")
     assert normalize_base_url("https://example.com/api/") == "https://example.com/api"
+    assert normalize_base_url("http://[::1]:8765/") == "http://[::1]:8765"
 
 
 def test_remote_api_rejects_noncontiguous_sample_ids():
@@ -140,6 +152,26 @@ def test_remote_api_rejects_noncontiguous_sample_ids():
     try:
         host, port = server.server_address
         with pytest.raises(RuntimeError, match="HTTP 500"):
+            run_remote_comsol_geometries(
+                RemoteComsolSettings(base_url=f"http://{host}:{port}", token="test-token", timeout_seconds=5),
+                [_geometry()],
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_remote_client_rejects_geometry_identity_mismatch():
+    def tampered_runner(geometries):
+        rows = _successful_runner(geometries)
+        rows.loc[0, "pitch_um"] = float(rows.loc[0, "pitch_um"]) + 0.1
+        return rows
+
+    server, thread = _start_server(tampered_runner)
+    try:
+        host, port = server.server_address
+        with pytest.raises(RuntimeError, match="geometry mismatch"):
             run_remote_comsol_geometries(
                 RemoteComsolSettings(base_url=f"http://{host}:{port}", token="test-token", timeout_seconds=5),
                 [_geometry()],
