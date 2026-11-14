@@ -84,6 +84,29 @@ def _select_probe(plan: dict[str, Any], planned: pd.DataFrame
     return requests, selected
 
 
+def _solve_probes(
+    solver: Callable[[Path, Path, Sequence[Geometry]], pd.DataFrame],
+    model: Path, config: Path, geoms: list[Geometry],
+) -> pd.DataFrame:
+    """Run three unique RI samples, then repeated center as a separate solve.
+
+    The backend rejects duplicated RI values in one fixed-geometry batch
+    when deriving grouped finite-difference sensitivity. Keeping the repeat
+    separate also makes the solve-repetition check genuinely independent of
+    the first solve call.
+    """
+    primary = solver(model, config, geoms[:3])
+    repeated = solver(model, config, geoms[3:])
+    if (not isinstance(primary, pd.DataFrame) or len(primary) != 3
+            or not isinstance(repeated, pd.DataFrame) or len(repeated) != 1):
+        raise ValueError("COMSOL RI response must return 3 distinct RI rows plus one repeat")
+    repeat = repeated.copy()
+    if "sample_id" not in repeat or repeat.iloc[0]["sample_id"] != 0:
+        raise ValueError("Repeated center solver call has an invalid local sample ID")
+    repeat.loc[repeat.index[0], "sample_id"] = 3
+    return pd.concat([primary, repeat], ignore_index=True)
+
+
 def _metrics(rows: list[dict[str, Any]], conditions: dict[str, float]
              ) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
@@ -222,7 +245,7 @@ def probe_comsol_ri_response(
         ]
         solver = runner or run_comsol_geometries
         report["solver_called"] = True
-        raw = solver(model, config, geoms)
+        raw = _solve_probes(solver, model, config, geoms)
         # Source identity is derived from the runner branch, not editable CSV fields.
         normalized = _normalize_chunk_rows(
             raw, selected, start=0,
