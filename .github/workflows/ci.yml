@@ -122,6 +122,28 @@ jobs:
           if-no-files-found: error
           path: /tmp/stage3_grouped_ml/
 
+      - name: Train and benchmark inverse design (software-only)
+        if: matrix.python-version == '3.11'
+        run: |
+          python -m sprpcf.ml.train_tandem \
+            --data /tmp/stage3_synthetic.csv \
+            --device cpu --epochs 1 --batch-size 32 --seed 7 \
+            --out /tmp/stage4_tandem.pt --onnx-out /tmp/stage4_tandem.onnx
+          python scripts/run_inverse_benchmark.py \
+            --data /tmp/stage3_synthetic.csv \
+            --checkpoint /tmp/stage4_tandem.pt \
+            --out /tmp/stage4_inverse_benchmark \
+            --seeds 7,17 --candidates-per-target 4 \
+            --bootstrap-resamples 200 --allow-software-only
+          python -c "import json; d=json.load(open('/tmp/stage4_inverse_benchmark/INVERSE_BENCHMARK_MANIFEST.json')); assert d['evidence_class']=='software_only'; assert d['scientific_submission_ready'] is False; assert d['physics_solver_evaluations']==0; assert d['heldout_geometry_groups']>=3"
+      - name: Upload inverse design comparison artifacts
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v7
+        with:
+          name: inverse-design-benchmark-${{ github.sha }}
+          if-no-files-found: error
+          path: /tmp/stage4_inverse_benchmark/
+
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7

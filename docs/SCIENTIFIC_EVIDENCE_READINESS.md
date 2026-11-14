@@ -121,3 +121,29 @@ This forward-model comparator is **not** the final published tandem
 inverse-design benchmark, physical validation or evidence of improved PCF-SPR
 sensor sensitivity. Real independent solver results and a matched-budget
 inverse-method comparison are still pending.
+
+
+## Stage 4: matched-query inverse-design benchmark
+
+The executable side-by-side tandem vs reference-retrieval vs uniform-random
+comparison and zero-latent ablation are in
+[MATCHED_INVERSE_BENCHMARK.md](MATCHED_INVERSE_BENCHMARK.md).
+A newly trained checkpoint binds its exact dataset SHA-256 and geometry
+train/held-out split IDs to the evaluation; the benchmark refuses old unbound
+checkpoints or inconsistent partitions.
+
+```bash
+python scripts/run_inverse_benchmark.py \
+  --data /path/to/frozen_training_dataset.parquet \
+  --checkpoint /path/to/retrained_tandem.pt \
+  --out outputs/research/stage4 \
+  --seeds 7,17,29 --candidates-per-target 16
+```
+
+All methods get the same forward-surrogate ranking-query budget. This
+does **not** equalize total runtime or independent COMSOL solver cost.
+Selected designs enter `PHYSICS_VERIFICATION_REQUESTS.csv` with
+`verification_status=not_run`. The model's own validation geometries are
+not an untouched external test, and generation seeds are **not**
+independent model-training replicates. An actual solver study, external
+holdout and physical claim review remain mandatory.

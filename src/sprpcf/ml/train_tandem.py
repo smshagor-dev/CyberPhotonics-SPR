@@ -17,7 +17,7 @@ from sprpcf.ml.dataset import CONDITION_COLUMNS, DesignDataModule, GEOMETRY_COLU
 from sprpcf.ml.losses import clamp_physical_geometry, geometry_constraint_loss
 from sprpcf.ml.onnx_export import export_inverse_generator_onnx
 from sprpcf.ml.tandem import ForwardNetwork, InverseGenerator, TandemNetwork
-from sprpcf.utils.reproducibility import seed_everything
+from sprpcf.utils.reproducibility import seed_everything, sha256_file
 
 
 def _select_device(name: str) -> torch.device:
@@ -175,6 +175,27 @@ def train_tandem_pipeline(
         "metric_mean": data.metric_scaler.mean_,
         "metric_scale": data.metric_scaler.scale_,
         "seed": seed,
+        # Stage 4: trace the exact data and geometry-disjoint training split.
+        # This binds checkpoint comparisons to the rows used for training,
+        # not merely to an equal random seed.
+        "dataset_sha256": sha256_file(data_path),
+        "train_row_indices": [int(index) for index in data.train_indices],
+        "validation_row_indices": [int(index) for index in data.val_indices],
+        "train_geometry_ids": sorted({
+            format(int(data.groups[index]), "016x") for index in data.train_indices
+        }),
+        "validation_geometry_ids": sorted({
+            format(int(data.groups[index]), "016x") for index in data.val_indices
+        }),
+        "training_parameters": {
+            "forward_epochs": int(resolved_forward_epochs),
+            "inverse_epochs": int(resolved_inverse_epochs),
+            "batch_size": int(batch_size),
+            "learning_rate": float(lr),
+            "alpha": float(alpha),
+            "beta": float(beta),
+            "dispersion_weight": float(dispersion_weight),
+        },
     }
     save_tandem_checkpoint(checkpoint, checkpoint_out)
     export_inverse_generator_onnx(
