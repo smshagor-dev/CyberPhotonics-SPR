@@ -12,8 +12,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from sprpcf.simulation.metrics import extract_metrics, grouped_finite_difference_sensitivity
+from sprpcf.simulation.metrics import grouped_finite_difference_sensitivity
 from sprpcf.simulation.schema import Geometry
+from sprpcf.simulation.spectrum_quality import normalize_comsol_export, validate_optical_spectrum
 
 LOGGER = logging.getLogger(__name__)
 SENSITIVITY_GROUP_COLUMNS = ["d_over_lambda", "pitch_um", "metal_thickness_nm", "channel_radius_um"]
@@ -63,30 +64,8 @@ def _normalize_evaluated_spectrum(
     loss: np.ndarray,
     config: dict[str, Any],
 ) -> tuple[np.ndarray, np.ndarray]:
-    wavelength_nm = np.asarray(wavelength, dtype=float).ravel() * float(config.get("wavelength_scale_to_nm", 1.0))
-    loss_db_per_cm = np.asarray(loss, dtype=float).ravel() * float(config.get("loss_scale_to_db_per_cm", 1.0))
-    if wavelength_nm.size != loss_db_per_cm.size or wavelength_nm.size < 3:
-        raise ValueError("COMSOL wavelength and loss arrays must have equal length >= 3.")
-    if not np.all(np.isfinite(wavelength_nm)) or not np.all(np.isfinite(loss_db_per_cm)):
-        raise ValueError("COMSOL returned non-finite wavelength or loss values.")
-
-    delta = np.diff(wavelength_nm)
-    if np.all(delta < 0):
-        wavelength_nm = wavelength_nm[::-1]
-        loss_db_per_cm = loss_db_per_cm[::-1]
-    elif not np.all(delta > 0):
-        raise ValueError("COMSOL wavelength samples must be strictly monotonic.")
-
-    expected = config.get("expected_wavelength_nm", [300.0, 2500.0])
-    if not isinstance(expected, (list, tuple)) or len(expected) != 2:
-        raise ValueError("expected_wavelength_nm must be [min_nm, max_nm].")
-    lower, upper = float(expected[0]), float(expected[1])
-    if wavelength_nm.min() < lower or wavelength_nm.max() > upper:
-        raise ValueError(
-            "COMSOL wavelength values are outside expected_wavelength_nm. "
-            "Check wavelength_scale_to_nm and the model export expression."
-        )
-    return wavelength_nm, loss_db_per_cm
+    """Normalize one real modal spectrum without flattening multiple solutions."""
+    return normalize_comsol_export(wavelength, loss, config)
 
 
 def _run_geometries(model_path: Path, config: dict[str, Any], geometries: Sequence[Geometry]) -> pd.DataFrame:
@@ -114,15 +93,15 @@ def _run_geometries(model_path: Path, config: dict[str, Any], geometries: Sequen
                 model.evaluate(loss_expression),
                 config,
             )
-            metrics = extract_metrics(wavelength_nm, loss_db_per_cm)
+            metrics = validate_optical_spectrum(wavelength_nm, loss_db_per_cm)
             rows.append(
                 {
                     "sample_id": sample_id,
                     "status": "ok",
                     **geometry.__dict__,
                     **metrics.__dict__,
-                    "wavelength_nm": ",".join(f"{value:.6f}" for value in wavelength_nm),
-                    "loss_db_per_cm": ",".join(f"{value:.6f}" for value in loss_db_per_cm),
+                    "wavelength_nm": ",".join(format(float(value), ".17g") for value in wavelength_nm),
+                    "loss_db_per_cm": ",".join(format(float(value), ".17g") for value in loss_db_per_cm),
                 }
             )
         except Exception as exc:

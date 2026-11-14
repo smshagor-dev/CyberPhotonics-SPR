@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 from sprpcf.simulation.comsol_sweep import run_comsol_geometries
-from sprpcf.simulation.metrics import extract_metrics
+from sprpcf.simulation.spectrum_quality import validate_optical_spectrum
 from sprpcf.simulation.schema import Geometry
 from sprpcf.simulation.session_provenance import (
     finish_solver_session, inspect_session_ledger, start_solver_session,
@@ -157,7 +157,7 @@ def _normalize_chunk_rows(
             loss = _parse_spectrum(measured.get("loss_db_per_cm"), "loss_db_per_cm")
             if wavelength.shape != loss.shape or not np.all(np.diff(wavelength) > 0):
                 raise ValueError("Nonmonotonic or mismatched archived wavelengths/losses")
-            metrics = extract_metrics(wavelength, loss)
+            metrics = validate_optical_spectrum(wavelength, loss)
             if (not np.isfinite(metrics.fwhm_nm) or metrics.fwhm_nm <= 0
                     or not math.isclose(float(metrics.lambda_res_nm),
                                         _finite(measured.get("lambda_res_nm"), "lambda_res_nm"),

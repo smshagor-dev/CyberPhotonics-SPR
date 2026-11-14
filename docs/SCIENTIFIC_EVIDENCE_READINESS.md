@@ -274,3 +274,14 @@ Both `run` and `run-batched` now require **two** source-bound reports:
 fixtures and cannot pass them off as physical simulations. A diagnostic
 pass does not establish full-sweep sensitivity, mesh convergence, solver
 authenticity or journal-ready numerical evidence.
+
+
+## Stage 12: protect solver spectra and geometry values against false success
+
+[COMSOL_SPECTRUM_QUALITY.md](COMSOL_SPECTRUM_QUALITY.md) describes
+engineering checks that refuse flattened multi-eigenmode outputs,
+non-real/negative loss, unresolved or boundary-truncated resonance peaks,
+invalid units and nonfinite geometric parameters. The original COMSOL
+runner and downstream archived/checkpointed spectrum readers use the
+same numerical gate. Synthetic tests of its failure handling do **not**
+verify genuine optical FEM outputs or publication-readiness.

@@ -23,7 +23,7 @@ import pandas as pd
 
 from sprpcf.ml.dataset import GEOMETRY_COLUMNS, METRIC_COLUMNS
 from sprpcf.simulation.comsol_sweep import run_comsol_geometries
-from sprpcf.simulation.metrics import extract_metrics
+from sprpcf.simulation.spectrum_quality import validate_optical_spectrum
 from sprpcf.simulation.schema import Geometry
 from sprpcf.utils.reproducibility import sha256_file
 from sprpcf.validation.closed_loop import build_validation_ri_values
@@ -301,7 +301,7 @@ def execute_comsol_campaign(
                     or not np.isfinite(wavelength).all() or not np.isfinite(loss).all()
                     or not np.all(np.diff(wavelength) > 0)):
                 raise ValueError("Successful COMSOL record has malformed wavelength/loss arrays")
-            metric = extract_metrics(wavelength, loss)
+            metric = validate_optical_spectrum(wavelength, loss)
             if (not math.isfinite(metric.fwhm_nm) or metric.fwhm_nm <= 0
                     or not math.isclose(metric.lambda_res_nm, _finite(measured["lambda_res_nm"], "lambda_res_nm"),
                                         abs_tol=0.05, rel_tol=0)
