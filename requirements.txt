@@ -7,16 +7,16 @@ matplotlib>=3.7
 torch>=2.1
 tensorflow-cpu>=2.14; python_version < "3.14" and platform_system == "Linux" and platform_machine == "x86_64"
 tensorflow>=2.14; python_version < "3.14" and (platform_system != "Linux" or platform_machine != "x86_64")
-ai-edge-litert>=2.2,<3; python_version < "3.14"
+ai-edge-litert>=2.3.0,<3; python_version < "3.14"
 onnx>=1.15
-onnxscript>=0.1.0
+onnxscript>=0.7.2
 onnxruntime>=1.16
 mph>=1.2
 tqdm>=4.66
-pyyaml>=6.0
+pyyaml>=6.0.3
 pytest>=7.4
 psutil>=5.9
 streamlit>=1.32
-plotly>=5.18
+plotly>=7.1.0
 shap>=0.45; python_version < "3.14"
-ruff>=0.6
+ruff>=0.17.3

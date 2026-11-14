@@ -17,7 +17,7 @@ dependencies = [
   "matplotlib>=3.7",
   "torch>=2.1",
   "tqdm>=4.66",
-  "pyyaml>=6.0",
+  "pyyaml>=6.0.3",
   "PySide6>=6.8,<7",
 ]
 
@@ -25,14 +25,14 @@ dependencies = [
 edge = [
   "tensorflow-cpu>=2.14; platform_system == 'Linux' and platform_machine == 'x86_64'",
   "tensorflow>=2.14; platform_system != 'Linux' or platform_machine != 'x86_64'",
-  "ai-edge-litert>=2.2,<3",
+  "ai-edge-litert>=2.3.0,<3",
 ]
 hardware = ["pyserial>=3.5"]
-onnx = ["onnx>=1.15", "onnxscript>=0.1.0", "onnxruntime>=1.16"]
+onnx = ["onnx>=1.15", "onnxscript>=0.7.2", "onnxruntime>=1.16"]
 comsol = ["mph>=1.2"]
-xai = ["shap>=0.45"]
+xai = ["shap>=0.49.1"]
 dashboard = ["streamlit>=1.40,<2"]
-dev = ["pytest>=7.4", "ruff>=0.6", "build>=1.2"]
+dev = ["pytest>=7.4", "ruff>=0.17.3", "build>=1.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
