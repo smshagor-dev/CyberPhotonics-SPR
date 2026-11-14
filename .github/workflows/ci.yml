@@ -182,6 +182,27 @@ jobs:
           if-no-files-found: error
           path: /tmp/stage6_claim_evidence/
 
+      - name: Preregister Stage 7 COMSOL requests (fixture only)
+        if: matrix.python-version == '3.11'
+        run: |
+          python -c "from pathlib import Path; Path('/tmp/stage7_DUMMY_NOT_COMSOL.mph').write_bytes(b'TEST FIXTURE ONLY - NOT A COMSOL MODEL')"
+          python scripts/run_comsol_verification_campaign.py plan \
+            --benchmark /tmp/stage4_inverse_benchmark \
+            --model /tmp/stage7_DUMMY_NOT_COMSOL.mph \
+            --config configs/comsol_sweep.example.yaml \
+            --solver-version 'TEST_FIXTURE_NO_COMSOL_RUN' \
+            --ri-span 0.04 --ri-points 5 \
+            --sensitivity-scale 100 --fom-scale 10 --resonance-scale 20 \
+            --out /tmp/stage7_fixture_plan
+          python -c "import json,csv; from pathlib import Path; p=Path('/tmp/stage7_fixture_plan'); d=json.loads((p/'campaign_plan.json').read_text()); r=list(csv.DictReader((p/'planned_sweeps.csv').open())); assert len(r)==d['planned_solver_evaluations']==d['planned_request_count']*5; assert d['physical_source_authenticity_verified'] is False; assert not (p/'sweeps.csv').exists()"
+      - name: Upload pre-registered Stage 7 software-only plan
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v7
+        with:
+          name: stage7-software-fixture-plan-${{ github.sha }}
+          if-no-files-found: error
+          path: /tmp/stage7_fixture_plan/
+
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
