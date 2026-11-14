@@ -167,6 +167,24 @@ def probe_comsol_ri_response(
     if not isinstance(preflight, dict) or not preflight.get("operational_pilot_verified"):
         raise ValueError("Source-bound one-RI pilot readiness has not passed")
     probes, selected = _select_probe(plan, planned)
+    # Freeze RI choices, numeric thresholds and input sources BEFORE solver output.
+    out.mkdir(parents=True, exist_ok=True)
+    protocol = {
+        "schema_version": 1,
+        "type": "frozen_comsol_ri_response_protocol",
+        "campaign_plan_sha256": sha256_file(Path(plan_dir) / "campaign_plan.json"),
+        "planned_sweeps_sha256": sha256_file(Path(plan_dir) / "planned_sweeps.csv"),
+        "pilot_readiness_report_sha256": sha256_file(_require_file(pilot_readiness_report)),
+        "model_sha256": sha256_file(model),
+        "config_sha256": sha256_file(config),
+        "frozen_samples": probes,
+        "preregistered_detection_thresholds": conditions,
+        "scientific_submission_ready": False,
+        "registered_before_solver_at_utc": _now(),
+    }
+    with (out / "RI_PROBE_PROTOCOL.json").open("x", encoding="utf-8") as writer:
+        json.dump(protocol, writer, indent=2, sort_keys=True, allow_nan=False)
+        writer.write("\n")
     real_backend = runner is None and check_pilot is None
     report: dict[str, Any] = {
         "schema_version": 1,
@@ -181,6 +199,7 @@ def probe_comsol_ri_response(
         "request_id": probes[0]["request_id"],
         "frozen_samples": probes,
         "preregistered_detection_thresholds": conditions,
+        "preregistered_protocol_sha256": sha256_file(out / "RI_PROBE_PROTOCOL.json"),
         "solver_called": False,
         "numerical_ri_response_consistent": False,
         "ready_for_full_solver_run": False,
@@ -278,6 +297,20 @@ def validate_ri_response_report(
     requested, expected = _select_probe(plan, planned)
     if report.get("frozen_samples") != requested:
         raise ValueError("RI diagnostic probe identities differ from frozen RI plan")
+    frozen_protocol_path = _require_file(record.parent / "RI_PROBE_PROTOCOL.json")
+    if report.get("preregistered_protocol_sha256") != sha256_file(frozen_protocol_path):
+        raise ValueError("RI diagnostic pre-run protocol hash mismatch")
+    protocol = json.loads(frozen_protocol_path.read_text(encoding="utf-8"))
+    if (not isinstance(protocol, dict)
+            or protocol.get("type") != "frozen_comsol_ri_response_protocol"
+            or protocol.get("frozen_samples") != requested
+            or protocol.get("preregistered_detection_thresholds")
+            != report.get("preregistered_detection_thresholds")
+            or protocol.get("scientific_submission_ready") is not False):
+        raise ValueError("RI response thresholds/samples changed from pre-solver protocol")
+    for name, file in sources.items():
+        if protocol.get(name) != sha256_file(file):
+            raise ValueError("RI response protocol source hash mismatch: " + name)
     if report.get("raw_spectra_file") != "RI_PROBE_SPECTRA.csv":
         raise ValueError("RI response raw spectrum file has an unexpected path")
     raw = _require_file(record.parent / "RI_PROBE_SPECTRA.csv")
@@ -300,7 +333,7 @@ def validate_ri_response_report(
         "min_shift_nm", "max_repeat_nm", "min_diagnostic_r2"
     }:
         raise ValueError("RI response diagnostic thresholds missing")
-    fixed = _thresholds(**conditions) if "min_shift_nm" in conditions else None
+    fixed = _thresholds(**conditions)
     recalculated, errors = _metrics(values, fixed)
     if errors or recalculated != report.get("diagnostic"):
         raise ValueError("RI response diagnostic changed or fails original thresholds")
