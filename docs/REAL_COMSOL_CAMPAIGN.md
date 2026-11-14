@@ -62,6 +62,7 @@ python scripts/run_comsol_verification_campaign.py run \
   --benchmark outputs/research/stage4 \
   --model /path/to/validated/real_pcf_spr.mph \
   --config /path/to/real_comsol_settings.yaml \
+  --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json \
   --out outputs/research/stage7_execution
 ```
 
