@@ -21,6 +21,7 @@ python scripts/run_comsol_verification_campaign.py run-batched \
   --benchmark outputs/research/stage4 \
   --model /path/to/real/pcf_spr.mph \
   --config /path/to/real/solver.yaml \
+  --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json \
   --batch-size 8 \
   --out outputs/research/stage8_run
 ```
@@ -75,6 +76,7 @@ python scripts/run_comsol_verification_campaign.py run-batched \
   --benchmark outputs/research/stage4 \
   --model /path/to/real/pcf_spr.mph \
   --config /path/to/real/solver.yaml \
+  --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json \
   --batch-size 8 --resume \
   --out outputs/research/stage8_run
 ```
