@@ -99,3 +99,25 @@ the actual COMSOL physics model, material dispersion, mode selection, boundaries
 and mesh/spectral convergence design. These checks do not automatically
 establish a physically validated sensor, and no such evidence is currently
 present in the tracked repository.
+
+
+## Stage 3: actual grouped ML comparisons (engineering evidence)
+
+Reproducible forward baselines and RI-feature ablation with identical held-out
+geometry groups across methods, per-target physical-unit errors, split hashes
+and paired group-bootstrap CIs are documented in
+[ML_STATISTICAL_VALIDATION.md](ML_STATISTICAL_VALIDATION.md).
+
+```bash
+python scripts/run_grouped_ml_study.py \
+  --data /path/to/frozen_source_labeled_dataset.parquet \
+  --out outputs/research/stage3 \
+  --seeds 7,17,29,41,53 \
+  --trees 120 --bootstrap-resamples 2000
+```
+
+Explicit `--allow-software-only` is required for synthetic demonstrations.
+This forward-model comparator is **not** the final published tandem
+inverse-design benchmark, physical validation or evidence of improved PCF-SPR
+sensor sensitivity. Real independent solver results and a matched-budget
+inverse-method comparison are still pending.
