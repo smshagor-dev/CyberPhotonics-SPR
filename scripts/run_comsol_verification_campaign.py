@@ -11,6 +11,9 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from sprpcf.simulation.resumable_campaign import (inspect_campaign_checkpoint, run_checkpointed_campaign)
+from sprpcf.simulation.session_provenance import (
+    audit_native_session_logs, bind_native_session_log, close_crashed_solver_session,
+)
 from sprpcf.simulation.verification_campaign import (
     execute_comsol_campaign,
     prepare_comsol_campaign,
@@ -57,6 +60,18 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = commands.add_parser("inspect", help="Read-only verification of committed batch hashes and progress")
     _paths(inspect)
     inspect.add_argument("--plan", type=Path, required=True)
+    bind = commands.add_parser("bind-log", help="Bind operator-supplied native COMSOL log to one finished solver session")
+    _paths(bind)
+    bind.add_argument("--plan", type=Path, required=True)
+    bind.add_argument("--session-id", required=True)
+    bind.add_argument("--native-solver-log", type=Path, required=True)
+    audit = commands.add_parser("audit-logs", help="Verify every session's registered native log and batch ownership")
+    _paths(audit)
+    audit.add_argument("--plan", type=Path, required=True)
+    close = commands.add_parser("close-crashed-session",
+                                help="Explicitly close a session after checking its worker is gone")
+    close.add_argument("--out", type=Path, required=True)
+    close.add_argument("--session-id", required=True)
     seal = commands.add_parser("seal", help="Seal real solver artifacts for Stage 5")
     _paths(seal)
     seal.add_argument("--plan", type=Path, required=True)
@@ -95,6 +110,27 @@ def main() -> None:
         result = inspect_campaign_checkpoint(
             args.plan, args.benchmark, args.model, args.config, args.out,
         )
+    elif args.command in ("bind-log", "audit-logs"):
+        inspected = inspect_campaign_checkpoint(
+            args.plan, args.benchmark, args.model, args.config, args.out,
+        )
+        checkpoint = json.loads((args.out / "checkpoint_manifest.json").read_text(encoding="utf-8"))
+        if checkpoint["backend_kind"] != "comsol_mph":
+            raise SystemExit("Native solver logs may only be bound to a COMSOL backend, not fixtures")
+        if args.command == "bind-log":
+            result = bind_native_session_log(
+                args.out, args.session_id, args.native_solver_log, checkpoint,
+                inspected["chunk_evidence"],
+            )
+        else:
+            result = {
+                "session_logs": audit_native_session_logs(
+                    args.out, checkpoint, inspected["chunk_evidence"],
+                ),
+                "source_authenticity_verified": False,
+            }
+    elif args.command == "close-crashed-session":
+        result = close_crashed_solver_session(args.out, args.session_id)
     else:
         result = seal_comsol_campaign(
             args.plan, args.run, args.benchmark, args.model, args.config,
@@ -111,6 +147,9 @@ def main() -> None:
         "committed_solver_evaluations": result.get("committed_solver_evaluations"),
         "remaining_solver_evaluations": result.get("remaining_solver_evaluations"),
         "execution_mode": result.get("execution_mode"),
+        "session_id": result.get("session_id"),
+        "session_log_sha256": result.get("log_sha256"),
+        "session_count": len(result["session_logs"]) if "session_logs" in result else None,
         "source_authenticity_verified": result.get("source_authenticity_verified",
                                                     result.get("physical_source_authenticity_verified", False)),
         "scientific_submission_ready": False,
