@@ -1,0 +1,58 @@
+# Stage 9 — Session-by-session native COMSOL log provenance
+
+Stage 8 can resume interrupted FEM campaigns. Stage 9 binds **each separate invocation of the local COMSOL backend** to an immutable session ID and one externally retained original native solver log. Merely logging a Python call or retaining a single log for the final resume session is not sufficient.
+
+**No live COMSOL execution occurs in GitHub CI.** Fixtures are synthetic and explicitly unqualified. File hashes cannot prove genuine COMSOL execution, electromagnetic correctness or independent physical performance.
+
+## Run and inspect
+
+Use the Stage 7 plan and Stage 8 batch runner:
+
+```bash
+python scripts/run_comsol_verification_campaign.py run-batched --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --batch-size 8 --out outputs/research/stage8_run
+python scripts/run_comsol_verification_campaign.py inspect --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --out outputs/research/stage8_run
+```
+
+Each invocation creates a solver_sessions/<session-id>.start.json record. Every committed batch records that ID, and each catchable interruption or normal completion creates the matching <session-id>.end.json. Inspect the start filenames or the inspect_campaign_checkpoint API session_evidence list to obtain actual session IDs.
+
+## Bind the original native solver log for EACH session
+
+Enable native COMSOL logging in the physical COMSOL installation before execution. Preserve the true log from every invocation, including interrupted/failed sessions. Bind each finished session:
+
+```bash
+python scripts/run_comsol_verification_campaign.py bind-log --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --out outputs/research/stage8_run --session-id YOUR_ACTUAL_32_HEX_SESSION_ID --native-solver-log /real/native/comsol/session-specific.log
+```
+
+This copies bytes to native_solver_logs/<session-id>.log and creates a non-overwritable JSON receipt binding the source session records, exact committed chunk manifest digests, log digest, and byte count. A log receipt **does not authenticate its physical origin**.
+
+Then validate all sessions and their logs:
+
+```bash
+python scripts/run_comsol_verification_campaign.py audit-logs --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --out outputs/research/stage8_run
+```
+
+The audit refuses missing/changed logs, altered receipt hashes, unknown chunk/session ownership, orphan evidence, or unclosed sessions. **One missing native solver log blocks sealing the entire checkpointed campaign.**
+
+## Process crash and explicit closure
+
+A hard termination may leave a session start file without an end marker. First verify the original process has terminated and handle the abandoned worker lock safely. Only then use:
+
+```bash
+python scripts/run_comsol_verification_campaign.py close-crashed-session --out outputs/research/stage8_run --session-id YOUR_ACTUAL_32_HEX_SESSION_ID
+```
+
+This marks the session manually_closed_after_crash, does not imply a successful solve, and does not waive the requirement for its original native log. Do not forge or reconstruct a lost native log.
+
+## Seal and audit
+
+```bash
+python scripts/run_comsol_verification_campaign.py seal --plan outputs/research/stage7_plan --run outputs/research/stage8_run --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --native-solver-log /real/native/comsol/registered-session.log --refinement-archive /real/refinement_archive --out outputs/research/stage9_sealed
+python scripts/verify_inverse_comsol.py --benchmark outputs/research/stage4 --solver-archive outputs/research/stage9_sealed --refinement-archive /real/refinement_archive --out outputs/research/stage9_checked --strict
+```
+
+Checkpointed sealing now requires the complete session registry, session-specific bound native logs, all original batch hashes, and a top-level --native-solver-log matching one of those registered logs. It copies unchanged original log bytes, start/end records and receipts to session_logs/; session_log_evidence.json and verification_manifest.json hash-bind the inventory. Stage 5 rechecks the sealed inventory, rejects changed/missing files and verifies source ownership again.
+
+All completion flags remain unqualified. Independent COMSOL model, material/PML/mesh review, actual source authenticity and external validation are **not** satisfied merely by consistent session logs or green CI.
+
+Research blocker: https://github.com/smshagor-dev/CyberPhotonics-SPR/issues/42
+A further research-integrity safeguard rejects byte-identical native log contents registered for different execution sessions. Each actual solver invocation must retain independently distinguishable original native log evidence; do not reuse one log merely to satisfy the expected session count.

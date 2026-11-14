@@ -145,3 +145,17 @@ CI success means **engineering behavior is covered**, not actual COMSOL
 solver execution or independent electromagnetic verification.
 
 Research blocker: https://github.com/smshagor-dev/CyberPhotonics-SPR/issues/42
+
+ 
+## Stage 9: require a true per-session COMSOL-native log
+
+Each uninterrupted or resumed solver invocation now receives a unique
+session ID. The batch journal binds every committed chunk to that session,
+and sealing requires an externally obtained **original native solver log
+for every invocation**. Use bind-log and audit-logs before seal; see
+[COMSOL_SESSION_PROVENANCE.md](COMSOL_SESSION_PROVENANCE.md).
+
+The Stage 5 audit checks all copied session logs and receipt SHA-256
+against the sealed source bundle. The registered native log bytes are
+still operator-supplied: hashes alone **do not** prove that COMSOL executed
+the claimed simulation or that the optical model is physically correct.

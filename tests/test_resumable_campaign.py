@@ -18,6 +18,7 @@ from sprpcf.simulation.metrics import extract_metrics
 from sprpcf.simulation.resumable_campaign import (
     inspect_campaign_checkpoint, run_checkpointed_campaign,
 )
+from sprpcf.simulation.session_provenance import bind_native_session_log
 from sprpcf.simulation.verification_campaign import (
     prepare_comsol_campaign, seal_comsol_campaign,
 )
@@ -292,6 +293,12 @@ def test_sealing_rechecks_all_chunks_and_final_merged_spectra(
 
     native_log = tmp_path / "fictional_comsol_test.log"
     native_log.write_text("FAKE NATIVE LOG: NO COMSOL WAS ACTUALLY RUN", encoding="utf-8")
+    inspected = inspect_campaign_checkpoint(plan, benchmark, model, config, out)
+    checkpoint = json.loads((out / "checkpoint_manifest.json").read_text(encoding="utf-8"))
+    for item in inspected["session_evidence"]:
+        bind_native_session_log(
+            out, item["session_id"], native_log, checkpoint, inspected["chunk_evidence"],
+        )
     refinement = tmp_path / "fake_refinement"
     refinement.mkdir()
     (refinement / "refinement_manifest.json").write_text("{}", encoding="utf-8")
@@ -342,3 +349,174 @@ def test_final_sweeps_rehash_cannot_bypass_checkpointed_seal(tmp_path, monkeypat
             plan, out, benchmark, model, config, native_log,
             tmp_path / "missing_refinement", tmp_path / "never_sealed",
         )
+
+
+
+def test_resumed_mock_backend_requires_distinct_native_log_for_every_session(
+    tmp_path, monkeypatch,
+):
+    """Simulated COMSOL entrypoint: NO REAL COMSOL EXECUTED in this regression."""
+    import sprpcf.simulation.resumable_campaign as resumable
+    import sprpcf.simulation.verification_campaign as legacy
+    from sprpcf.simulation.session_provenance import (
+        audit_native_session_logs, audit_sealed_session_logs,
+    )
+
+    plan, benchmark, model, config = _campaign(tmp_path)
+    out = tmp_path / "checkpointed"
+    invocations = []
+
+    def interrupted_source(m, c, geometries):
+        invocations.append(len(geometries))
+        if len(invocations) == 2:
+            raise RuntimeError("simulated COMSOL session loss")
+        return _fake_solver(m, c, geometries)
+
+    monkeypatch.setattr(resumable, "run_comsol_geometries", interrupted_source)
+    with pytest.raises(RuntimeError, match="simulated COMSOL session loss"):
+        run_checkpointed_campaign(plan, benchmark, model, config, out, batch_size=7)
+    interrupted_state = inspect_campaign_checkpoint(plan, benchmark, model, config, out)
+    assert interrupted_state["committed_solver_evaluations"] == 7
+    assert len(interrupted_state["session_evidence"]) == 1
+    assert interrupted_state["session_evidence"][0]["status"] == "interrupted"
+    monkeypatch.setattr(resumable, "run_comsol_geometries", _fake_solver)
+    run = run_checkpointed_campaign(plan, benchmark, model, config, out,
+                                   batch_size=7, resume=True)
+    assert len(run["session_evidence"]) == 2
+    assert {s["status"] for s in run["session_evidence"]} == {"completed", "interrupted"}
+    inspected = inspect_campaign_checkpoint(plan, benchmark, model, config, out)
+    contract = json.loads((out / "checkpoint_manifest.json").read_text(encoding="utf-8"))
+    assert {x["session_id"] for x in inspected["chunk_evidence"]} == {
+        x["session_id"] for x in inspected["session_evidence"]
+    }
+    first = inspected["session_evidence"][0]
+    first_log = tmp_path / "first_native_fixture.log"
+    first_log.write_text("FAKE LOG - FIRST COMSOL SESSION NEVER RAN", encoding="utf-8")
+    bind_native_session_log(out, first["session_id"], first_log, contract,
+                           inspected["chunk_evidence"])
+    with pytest.raises(ValueError, match="Missing or symlinked solver session evidence"):
+        audit_native_session_logs(out, contract, inspected["chunk_evidence"])
+    second = inspected["session_evidence"][1]
+    with pytest.raises(ValueError, match="Duplicate native solver log bytes"):
+        bind_native_session_log(
+            out, second["session_id"], first_log, contract, inspected["chunk_evidence"],
+        )
+    second_log = tmp_path / "second_native_fixture.log"
+    second_log.write_text("FAKE LOG - SECOND COMSOL SESSION NEVER RAN", encoding="utf-8")
+    bind_native_session_log(out, second["session_id"], second_log, contract,
+                           inspected["chunk_evidence"])
+    evidence = audit_native_session_logs(out, contract, inspected["chunk_evidence"])
+    assert len(evidence) == 2
+    assert all(x["source_authenticity_verified"] is False for x in evidence)
+    refinement = tmp_path / "fixture_refinement"
+    refinement.mkdir()
+    (refinement / "refinement_manifest.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(legacy, "audit_refinement_archive", lambda root: {
+        "convergence_consistent": True,
+        "file_sha256": {"model": sha256_file(model)},
+    })
+    sealed = tmp_path / "sealed"
+    manifest = seal_comsol_campaign(
+        plan, out, benchmark, model, config, second_log, refinement, sealed,
+    )
+    assert manifest["session_log_provenance_required"] is True
+    assert manifest["execution_mode"] == "checkpointed_batches"
+    attested = audit_sealed_session_logs(sealed, manifest)
+    assert attested["session_count"] == 2
+    assert attested["source_authenticity_verified"] is False
+    assert attested["physical_correctness_verified"] is False
+    first_copied = sealed / "session_logs" / (first["session_id"] + ".log")
+    first_copied.write_bytes(first_copied.read_bytes() + b"\nTAMPER")
+    with pytest.raises(ValueError, match="evidence hash mismatch"):
+        audit_sealed_session_logs(sealed, manifest)
+
+
+def test_missing_session_native_log_blocks_seal_before_refinement(tmp_path, monkeypatch):
+    import sprpcf.simulation.resumable_campaign as resumable
+    from sprpcf.simulation.session_provenance import (
+        audit_native_session_logs, bind_native_session_log,
+    )
+    plan, benchmark, model, config = _campaign(tmp_path)
+    monkeypatch.setattr(resumable, "run_comsol_geometries", _fake_solver)
+    out = tmp_path / "checkpointed"
+    run_checkpointed_campaign(plan, benchmark, model, config, out, batch_size=7)
+    inspected = inspect_campaign_checkpoint(plan, benchmark, model, config, out)
+    contract = json.loads((out / "checkpoint_manifest.json").read_text())
+    first_session = inspected["session_evidence"][0]["session_id"]
+    log = tmp_path / "native_fixture.log"
+    log.write_text("FAKE - NEVER COMSOL", encoding="utf-8")
+    with pytest.raises(ValueError, match="missing"):
+        seal_comsol_campaign(
+            plan, out, benchmark, model, config, log,
+            tmp_path / "missing_refinement", tmp_path / "sealed",
+        )
+    receipt = bind_native_session_log(out, first_session, log, contract,
+                                      inspected["chunk_evidence"])
+    assert receipt["source_authenticity_verified"] is False
+    with pytest.raises(FileExistsError, match="already bound"):
+        bind_native_session_log(out, first_session, log, contract,
+                               inspected["chunk_evidence"])
+    (out / "native_solver_logs" / (first_session + ".log")).write_text(
+        "tampered", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="receipt mismatch"):
+        audit_native_session_logs(out, contract, inspected["chunk_evidence"])
+
+
+def test_explicit_crash_closure_cannot_override_active_worker_lock(tmp_path):
+    from sprpcf.simulation.session_provenance import (
+        close_crashed_solver_session, start_solver_session, inspect_session_ledger,
+    )
+    from sprpcf.simulation.resumable_campaign import _checkpoint_contract
+    plan, benchmark, model, config = _campaign(tmp_path)
+    contract = _checkpoint_contract(
+        plan, json.loads((plan / "campaign_plan.json").read_text(encoding="utf-8")),
+        7, True,
+    )
+    run_dir = tmp_path / "crashed"
+    run_dir.mkdir()
+    sid = start_solver_session(run_dir, contract, 0)
+    lock = run_dir / ".active-comsol-campaign.lock"
+    lock.write_text("fake live worker", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Active worker lock"):
+        close_crashed_solver_session(run_dir, sid)
+    lock.unlink()
+    status = close_crashed_solver_session(run_dir, sid)
+    assert status["status"] == "manually_closed_after_crash"
+    inv = inspect_session_ledger(run_dir, contract, [])
+    assert len(inv) == 1
+    assert inv[0]["status"] == "manually_closed_after_crash"
+    with pytest.raises(ValueError, match="already ended"):
+        close_crashed_solver_session(run_dir, sid)
+
+
+def test_cli_session_binding_and_audit_never_loads_comsol(tmp_path, monkeypatch):
+    import sprpcf.simulation.resumable_campaign as resumable
+    plan, benchmark, model, config = _campaign(tmp_path)
+    monkeypatch.setattr(resumable, "run_comsol_geometries", _fake_solver)
+    out = tmp_path / "checkpointed"
+    run_checkpointed_campaign(plan, benchmark, model, config, out, batch_size=8)
+    inspected = inspect_campaign_checkpoint(plan, benchmark, model, config, out)
+    sid = inspected["session_evidence"][0]["session_id"]
+    native_log = tmp_path / "not_real_solver.log"
+    native_log.write_text("FICTIONAL LOG", encoding="utf-8")
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_comsol_verification_campaign.py"
+    # A new process cannot inherit the test-only fake COMSOL function, but
+    # bind-log and audit-logs only load the frozen evidence files.
+    arguments = [
+        "--plan", str(plan), "--benchmark", str(benchmark),
+        "--model", str(model), "--config", str(config), "--out", str(out),
+    ]
+    bind = subprocess.run(
+        [sys.executable, str(script), "bind-log", *arguments,
+         "--session-id", sid, "--native-solver-log", str(native_log)],
+        capture_output=True, text=True, check=False,
+    )
+    assert bind.returncode == 0, bind.stderr
+    assert json.loads(bind.stdout)["source_authenticity_verified"] is False
+    audit = subprocess.run(
+        [sys.executable, str(script), "audit-logs", *arguments],
+        capture_output=True, text=True, check=False,
+    )
+    assert audit.returncode == 0, audit.stderr
+    assert json.loads(audit.stdout)["session_count"] == 1
