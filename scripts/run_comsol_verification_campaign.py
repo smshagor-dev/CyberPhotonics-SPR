@@ -10,6 +10,7 @@ SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from sprpcf.simulation.resumable_campaign import (inspect_campaign_checkpoint, run_checkpointed_campaign)
 from sprpcf.simulation.verification_campaign import (
     execute_comsol_campaign,
     prepare_comsol_campaign,
@@ -46,6 +47,16 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="Execute all planned sweeps using COMSOL mph")
     _paths(run)
     run.add_argument("--plan", type=Path, required=True)
+    batched = commands.add_parser("run-batched", help="Hash-checkpoint every COMSOL batch; resume without rerunning completed samples")
+    _paths(batched)
+    batched.add_argument("--plan", type=Path, required=True)
+    batched.add_argument("--batch-size", type=int, default=8)
+    batched.add_argument("--resume", action="store_true", help="Verify existing committed batches and resume remaining samples")
+    batched.add_argument("--recover-stale-lock", action="store_true",
+                         help="ONLY when no other worker is alive; explicitly replace abandoned session lock")
+    inspect = commands.add_parser("inspect", help="Read-only verification of committed batch hashes and progress")
+    _paths(inspect)
+    inspect.add_argument("--plan", type=Path, required=True)
     seal = commands.add_parser("seal", help="Seal real solver artifacts for Stage 5")
     _paths(seal)
     seal.add_argument("--plan", type=Path, required=True)
@@ -74,6 +85,16 @@ def main() -> None:
         result = execute_comsol_campaign(
             args.plan, args.benchmark, args.model, args.config, args.out,
         )
+    elif args.command == "run-batched":
+        result = run_checkpointed_campaign(
+            args.plan, args.benchmark, args.model, args.config, args.out,
+            batch_size=args.batch_size, resume=args.resume,
+            recover_stale_lock=args.recover_stale_lock,
+        )
+    elif args.command == "inspect":
+        result = inspect_campaign_checkpoint(
+            args.plan, args.benchmark, args.model, args.config, args.out,
+        )
     else:
         result = seal_comsol_campaign(
             args.plan, args.run, args.benchmark, args.model, args.config,
@@ -87,6 +108,9 @@ def main() -> None:
             "scheduled_solver_evaluations", result.get("planned_solver_evaluations")
         ),
         "failed_solver_evaluations": result.get("failed_solver_evaluations"),
+        "committed_solver_evaluations": result.get("committed_solver_evaluations"),
+        "remaining_solver_evaluations": result.get("remaining_solver_evaluations"),
+        "execution_mode": result.get("execution_mode"),
         "source_authenticity_verified": result.get("source_authenticity_verified",
                                                     result.get("physical_source_authenticity_verified", False)),
         "scientific_submission_ready": False,
