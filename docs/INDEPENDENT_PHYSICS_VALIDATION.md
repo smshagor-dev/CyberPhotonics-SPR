@@ -142,3 +142,23 @@ physics evidence can pass a scientific review. CI uses simulated **test fixtures
 only** for tampering regressions; those fixtures are never publishable evidence.
 See [issue #42](https://github.com/smshagor-dev/CyberPhotonics-SPR/issues/42)
 and [scientific readiness](SCIENTIFIC_EVIDENCE_READINESS.md).
+
+
+## 3. Single command to assemble the numerical evidence status
+
+After both real archives are available, generate one combined, fail-closed
+report that can be inspected alongside the journal's supplementary materials:
+
+```bash
+python scripts/validate_physics_evidence.py \
+  --iteration /path/to/real/comsol-iteration \
+  --refinement-archive /path/to/real/refinement-archive \
+  --out outputs/real_validation/PHYSICS_EVIDENCE_GATE.json \
+  --strict
+```
+
+The combined `archived_records_consistent` field is true only if **both**
+independent consistency audits pass. The fields
+`independent_physics_correctness_verified` and `submission_physics_claim_ready`
+remain false intentionally: reviewer assessment of the physical model, run
+authenticity and claims remains a separate scientific task.
