@@ -166,6 +166,22 @@ jobs:
           if-no-files-found: error
           path: /tmp/stage5_unqualified_report/
 
+      - name: Generate fail-closed Stage 6 claim package
+        if: matrix.python-version == '3.11'
+        run: |
+          python scripts/build_claim_evidence_package.py \
+            --benchmark /tmp/stage4_inverse_benchmark \
+            --stage5 /tmp/stage5_unqualified_report \
+            --out /tmp/stage6_claim_evidence
+          python -c "import json,csv; from pathlib import Path; root=Path('/tmp/stage6_claim_evidence'); d=json.loads((root/'PUBLICATION_EVIDENCE_MANIFEST.json').read_text()); assert d['scientific_submission_ready'] is False; assert d['numerical_candidates_available'] is False; assert d['candidate_number_count']==0; assert len(list(csv.DictReader((root/'CANDIDATE_NUMERICAL_VALUES_FOR_REVIEW.csv').open())))==0"
+      - name: Upload Stage 6 research claim gap package
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v7
+        with:
+          name: stage6-claim-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: /tmp/stage6_claim_evidence/
+
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
