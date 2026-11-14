@@ -11,6 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
+from sprpcf.validation.physics_audit import audit_comsol_iteration
 from sprpcf.validation.completion import (
     qualify_available_evidence,
     refresh_completion_outputs,
@@ -42,6 +43,14 @@ def build_parser() -> argparse.ArgumentParser:
     comsol = sub.add_parser("run-comsol", help="Run the configured real COMSOL closed-loop command locally.")
     comsol.add_argument("--campaign", type=Path, required=True)
     comsol.add_argument("--repo-root", type=Path, default=Path("."))
+
+    audit = sub.add_parser(
+        "audit-comsol",
+        help="Recompute archived spectra and cross-check COMSOL-result provenance before journal use.",
+    )
+    audit.add_argument("--iteration", type=Path, required=True)
+    audit.add_argument("--json-out", type=Path, required=True)
+    audit.add_argument("--metric-tolerance-nm", type=float, default=0.05)
 
     qualify = sub.add_parser("qualify-ready", help="Qualify any real stage whose required artifacts are already present.")
     qualify.add_argument("--campaign", type=Path, required=True)
@@ -75,6 +84,14 @@ def main() -> None:
         print(json.dumps(report, indent=2, sort_keys=True))
         if not report["ok"]:
             raise SystemExit(report["returncode"] or 2)
+        return
+    if args.command == "audit-comsol":
+        report = audit_comsol_iteration(args.iteration, metric_tolerance_nm=args.metric_tolerance_nm)
+        payload = json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        _write(args.json_out, payload)
+        print(payload, end="")
+        if not report["consistency_ok"]:
+            raise SystemExit(2)
         return
     if args.command == "qualify-ready":
         report = qualify_available_evidence(args.campaign)
