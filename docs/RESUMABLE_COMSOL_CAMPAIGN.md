@@ -22,6 +22,7 @@ python scripts/run_comsol_verification_campaign.py run-batched \
   --model /path/to/real/pcf_spr.mph \
   --config /path/to/real/solver.yaml \
   --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json \
+  --ri-response-report outputs/research/stage11_ri_probe/COMSOL_RI_RESPONSE_READINESS.json \
   --batch-size 8 \
   --out outputs/research/stage8_run
 ```
@@ -77,6 +78,7 @@ python scripts/run_comsol_verification_campaign.py run-batched \
   --model /path/to/real/pcf_spr.mph \
   --config /path/to/real/solver.yaml \
   --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json \
+  --ri-response-report outputs/research/stage11_ri_probe/COMSOL_RI_RESPONSE_READINESS.json \
   --batch-size 8 --resume \
   --out outputs/research/stage8_run
 ```
@@ -161,3 +163,18 @@ The Stage 5 audit checks all copied session logs and receipt SHA-256
 against the sealed source bundle. The registered native log bytes are
 still operator-supplied: hashes alone **do not** prove that COMSOL executed
 the claimed simulation or that the optical model is physically correct.
+
+
+## Stage 11: RI parameter coupling and repeatability before long solves
+
+After passing the Stage 10 one-RI model gate, run the separate
+[RI response sanity diagnostic](COMSOL_RI_RESPONSE_GUARD.md). It solves
+the first frozen geometry at low, center, high, then **repeated center**
+analyte RI, checking that the resonance actually responds monotonically
+and repeatably to RI changes on a resolved wavelength grid.
+
+Both `run` and `run-batched` now require **two** source-bound reports:
+`--readiness-report` and `--ri-response-report`. CI exercises software
+fixtures and cannot pass them off as physical simulations. A diagnostic
+pass does not establish full-sweep sensitivity, mesh convergence, solver
+authenticity or journal-ready numerical evidence.
