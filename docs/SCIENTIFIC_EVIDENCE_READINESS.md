@@ -172,3 +172,24 @@ this command correctly produces a failed/blocked audit instead of inventing
 physics. Consistent file hashes and recomputed metrics are *not* proof of
 physical correctness or real COMSOL execution. The paper's independent
 physics validation and publication gate remain open research blockers.
+
+
+## Stage 6: claim-traceable manuscript results draft
+
+An executable manuscript-working package now checks frozen Stage 4/5 hashes,
+reruns Stage 5 when genuine external COMSOL archives and registry are provided,
+and creates a claim-level evidence ledger and manuscript draft. See
+[CLAIM_TRACEABLE_PUBLICATION.md](CLAIM_TRACEABLE_PUBLICATION.md).
+
+The builder deliberately withholds optical metrics from a Stage 5 JSON file
+alone. All numbers are review-only even after a numerical archive re-audit,
+and independent solver/source authenticity plus electromagnetic model
+scientific review still block publication approval.
+
+A blocker-only package can be generated without real COMSOL archives:
+
+    python scripts/build_claim_evidence_package.py --benchmark outputs/research/stage4 --out outputs/publication/stage6
+
+C03 physical correctness, C04 independently tested tandem superiority and
+C06 journal readiness remain blocked until external experiments, independent
+review and stronger statistical design are completed.
