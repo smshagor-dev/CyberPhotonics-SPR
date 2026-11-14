@@ -196,3 +196,13 @@ Both `run` and `run-batched` now require **two** source-bound reports:
 fixtures and cannot pass them off as physical simulations. A diagnostic
 pass does not establish full-sweep sensitivity, mesh convergence, solver
 authenticity or journal-ready numerical evidence.
+
+
+## Stage 12: mandatory raw spectrum quality controls
+
+The solver now rejects multi-mode/solution matrices instead of flattening
+them into artificial 1-D spectra. Results are accepted only if loss,
+resonance, FWHM, optical wavelength grid and physical parameter values
+pass the [spectrum quality rules](COMSOL_SPECTRUM_QUALITY.md). Failed
+individual solves remain in the output ledger. These checks are
+necessary *data hygiene*, not proof of model or physical correctness.
