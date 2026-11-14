@@ -147,3 +147,28 @@ Selected designs enter `PHYSICS_VERIFICATION_REQUESTS.csv` with
 not an untouched external test, and generation seeds are **not**
 independent model-training replicates. An actual solver study, external
 holdout and physical claim review remain mandatory.
+
+
+## Stage 5: independent COMSOL request-to-spectrum comparison
+
+The Stage 5 importer connects each frozen `PHYSICS_VERIFICATION_REQUESTS.csv`
+entry from Stage 4 to a hash-bound COMSOL execution archive. It recomputes
+sensor resonance/sensitivity/FOM from complete RI spectra, verifies fixed
+geometry and source/refinement model hashes, and counts **all** solver
+failures in the denominator. See
+[COMSOL_INDEPENDENT_VERIFICATION.md](COMSOL_INDEPENDENT_VERIFICATION.md).
+
+```bash
+python scripts/verify_inverse_comsol.py \
+  --benchmark outputs/research/stage4 \
+  --solver-archive /path/to/real/solver_archive \
+  --refinement-archive /path/to/real/refinement_archive \
+  --out outputs/research/stage5 \
+  --strict
+```
+
+**Important:** Without authentic external solver model/log/export archives,
+this command correctly produces a failed/blocked audit instead of inventing
+physics. Consistent file hashes and recomputed metrics are *not* proof of
+physical correctness or real COMSOL execution. The paper's independent
+physics validation and publication gate remain open research blockers.
