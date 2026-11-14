@@ -44,8 +44,10 @@ def normalize_comsol_export(
     wavelength: Any, loss: Any, config: dict[str, Any]
 ) -> tuple[np.ndarray, np.ndarray]:
     """Normalize one COMSOL spectral series, rejecting multi-solution flattening."""
-    w = _numeric_series(wavelength, "wavelength")
-    l = _numeric_series(loss, "confinement loss")
+    # Never scale a view returned by MPh in place: the same Java/Numpy-backed
+    # arrays may be reused by subsequent model evaluations or archived raw.
+    w = _numeric_series(wavelength, "wavelength").copy()
+    l = _numeric_series(loss, "confinement loss").copy()
     if w.size != l.size or w.size < 3:
         raise ValueError("COMSOL wavelength and loss arrays must have equal length >= 3")
     scales: dict[str, float] = {}
