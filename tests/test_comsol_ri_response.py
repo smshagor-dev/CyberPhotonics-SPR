@@ -87,7 +87,7 @@ def _fake_solver(model, config, geometries, *, kind: str = "valid"):
         if kind == "no_coupling":
             center = 600
         elif kind == "nonmonotonic" and index == 1:
-            center = 595
+            center = 585
         elif kind == "unstable_repeat" and index == 3:
             center = 603
         loss = 1 + 10.0 / (1.0 + ((wavelength - center) / 9.0) ** 2)
