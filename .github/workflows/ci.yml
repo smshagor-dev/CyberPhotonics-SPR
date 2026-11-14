@@ -86,6 +86,22 @@ jobs:
           test -f /tmp/publication-demo/submission_package/SUPPLEMENTARY_INFORMATION.md
           test -f /tmp/publication-demo/submission_package/TABLE_S1_VALIDATION_METRICS.csv
           test -f /tmp/publication-demo/submission_package/submission_checksums.sha256
+      - name: Generate conservative evidence inventory
+        if: matrix.python-version == '3.11'
+        run: |
+          python scripts/evidence_inventory.py \
+            --json-out /tmp/evidence-inventory.json \
+            --markdown-out /tmp/evidence-inventory.md
+          python -c "import json; d=json.load(open('/tmp/evidence-inventory.json')); assert d['scientific_submission_ready'] is False; assert d['schema_version'] == 1"
+      - name: Upload evidence inventory report
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v7
+        with:
+          name: research-evidence-inventory-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            /tmp/evidence-inventory.json
+            /tmp/evidence-inventory.md
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
