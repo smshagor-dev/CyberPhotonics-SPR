@@ -291,6 +291,11 @@ def validate_live_pilot_report(
     if not math.isclose(float(rows.iloc[0]["analyte_ri"]),
                         float(expected["analyte_ri"]), abs_tol=1e-9, rel_tol=0):
         raise ValueError("Pilot target refractive index was altered")
+    # Recompute the optical quantities again, not merely their reported hash.
+    _normalize_chunk_rows(
+        rows, planned.iloc[central:central + 1],
+        start=central, backend="comsol_mph", local_ids=False,
+    )
     return {
         "operational_pilot_verified": True,
         "pilot_readiness_report_sha256": sha256_file(report_file),
