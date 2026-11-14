@@ -9,7 +9,7 @@ Stage 8 can resume interrupted FEM campaigns. Stage 9 binds **each separate invo
 Use the Stage 7 plan and Stage 8 batch runner:
 
 ```bash
-python scripts/run_comsol_verification_campaign.py run-batched --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json --batch-size 8 --out outputs/research/stage8_run
+python scripts/run_comsol_verification_campaign.py run-batched --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json --ri-response-report outputs/research/stage11_ri_probe/COMSOL_RI_RESPONSE_READINESS.json --batch-size 8 --out outputs/research/stage8_run
 python scripts/run_comsol_verification_campaign.py inspect --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --out outputs/research/stage8_run
 ```
 
@@ -56,3 +56,18 @@ All completion flags remain unqualified. Independent COMSOL model, material/PML/
 
 Research blocker: https://github.com/smshagor-dev/CyberPhotonics-SPR/issues/42
 A further research-integrity safeguard rejects byte-identical native log contents registered for different execution sessions. Each actual solver invocation must retain independently distinguishable original native log evidence; do not reuse one log merely to satisfy the expected session count.
+
+
+## Stage 11: RI parameter coupling and repeatability before long solves
+
+After passing the Stage 10 one-RI model gate, run the separate
+[RI response sanity diagnostic](COMSOL_RI_RESPONSE_GUARD.md). It solves
+the first frozen geometry at low, center, high, then **repeated center**
+analyte RI, checking that the resonance actually responds monotonically
+and repeatably to RI changes on a resolved wavelength grid.
+
+Both `run` and `run-batched` now require **two** source-bound reports:
+`--readiness-report` and `--ri-response-report`. CI exercises software
+fixtures and cannot pass them off as physical simulations. A diagnostic
+pass does not establish full-sweep sensitivity, mesh convergence, solver
+authenticity or journal-ready numerical evidence.
