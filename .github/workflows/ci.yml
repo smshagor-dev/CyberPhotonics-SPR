@@ -144,6 +144,28 @@ jobs:
           if-no-files-found: error
           path: /tmp/stage4_inverse_benchmark/
 
+      - name: Verify physics-evidence gate fails closed without real COMSOL
+        if: matrix.python-version == '3.11'
+        run: |
+          set +e
+          python scripts/verify_inverse_comsol.py \
+            --benchmark /tmp/stage4_inverse_benchmark \
+            --solver-archive /tmp/no-real-comsol-archive \
+            --refinement-archive /tmp/no-real-refinement-archive \
+            --out /tmp/stage5_unqualified_report \
+            --bootstrap-resamples 200 --strict
+          code=$?
+          set -e
+          test "$code" -eq 2
+          python -c "import json; r=json.load(open('/tmp/stage5_unqualified_report/PHYSICS_VERIFICATION_AUDIT.json')); assert r['numerical_archive_consistent'] is False; assert r['source_authenticity_verified'] is False; assert r['scientific_submission_ready'] is False; assert len(r['errors'])>0"
+      - name: Upload scientific blocker evidence
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v7
+        with:
+          name: unqualified-physics-blockers-${{ github.sha }}
+          if-no-files-found: error
+          path: /tmp/stage5_unqualified_report/
+
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
