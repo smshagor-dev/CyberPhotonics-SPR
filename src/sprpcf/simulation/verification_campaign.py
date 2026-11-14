@@ -397,6 +397,27 @@ def seal_comsol_campaign(
                 or checked["chunk_evidence"] != run.get("chunk_evidence")
                 or checked["canonical_merged_sweeps_sha256"] != expected["sweeps_sha256"]):
             raise ValueError("Checkpointed COMSOL run chunks disagree with sealed execution manifest/sweeps")
+    session_logs: list[dict[str, Any]] | None = None
+    if run.get("execution_mode") == "checkpointed_batches":
+        # This is not optional for checkpointed campaigns: every uninterrupted
+        # or interrupted solver invocation needs a separately supplied native log.
+        from sprpcf.simulation.session_provenance import audit_native_session_logs
+        from sprpcf.simulation.resumable_campaign import _checkpoint_contract
+
+        contract = _checkpoint_contract(
+            Path(plan_dir), plan,
+            _read_json(_require_file(run_root / "checkpoint_manifest.json"))["batch_size"],
+            real_backend=True,
+        )
+        if run.get("session_log_provenance_required") is not True:
+            raise ValueError("Checkpointed COMSOL campaign lacks required session-log provenance")
+        session_logs = audit_native_session_logs(run_root, contract, checked["chunk_evidence"])
+        if session_logs is None or not session_logs:
+            raise ValueError("No native solver log evidence for checkpointed COMSOL campaign")
+        if run.get("session_evidence") != checked.get("session_evidence"):
+            raise ValueError("Solver invocation session inventory differs from execution record")
+        if sha256_file(log) not in {item["native_log_sha256"] for item in session_logs}:
+            raise ValueError("Provided --native-solver-log was not bound to any recorded session")
     ref_root = Path(refinement_archive).resolve()
     verification = audit_refinement_archive(ref_root)
     if not verification["convergence_consistent"]:
@@ -426,6 +447,40 @@ def seal_comsol_campaign(
         "physical_correctness_verified": False,
         "scientific_submission_ready": False,
     }
+    if session_logs is not None:
+        from sprpcf.simulation.session_provenance import LOG_DIR, SESSION_DIR
+        all_evidence: dict[str, str] = {}
+        for record in session_logs:
+            sid = record["session_id"]
+            for source_subdir, extension in (
+                (SESSION_DIR, ".start.json"),
+                (SESSION_DIR, ".end.json"),
+                (LOG_DIR, ".log"),
+                (LOG_DIR, ".json"),
+            ):
+                source = run_root / source_subdir / (sid + extension)
+                relative = "session_logs/" + sid + extension
+                destination = out / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+                digest = sha256_file(destination)
+                if digest != sha256_file(source):
+                    raise ValueError("Session log evidence changed during archival: " + relative)
+                all_evidence[relative] = digest
+        index = out / "session_log_evidence.json"
+        index.write_text(json.dumps({
+            "schema_version": 1,
+            "type": "per_execution_session_log_provenance",
+            "source_authenticity_verified": False,
+            "session_count": len(session_logs),
+            "session_records": session_logs,
+            "files_sha256": all_evidence,
+            "warning": "Native log bytes supplied externally; hashes do not establish COMSOL authenticity.",
+        }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        manifest["session_log_evidence"] = "session_log_evidence.json"
+        manifest["session_log_evidence_sha256"] = sha256_file(index)
+        manifest["session_log_provenance_required"] = True
+        manifest["solver_log_type"] = "one_native_log_from_complete_bound_session_ledger"
     for role, (source, filename) in files.items():
         destination = out / filename
         shutil.copyfile(source, destination)
