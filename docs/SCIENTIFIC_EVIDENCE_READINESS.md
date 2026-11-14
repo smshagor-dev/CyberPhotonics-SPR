@@ -77,3 +77,25 @@ The example config contains placeholders and is **not** executable physics evide
 `reports/phase4_hil_benchmark.json` explicitly records `"protocol": "mock"`.
 It may support software testing, never a physical hardware latency or sensor
 benchmark claim.
+
+
+## Stage 2: archived independent numerical-physics audits
+
+The executable spectrum and refinement consistency audits are documented in
+[INDEPENDENT_PHYSICS_VALIDATION.md](INDEPENDENT_PHYSICS_VALIDATION.md).
+Run both on **actual** completed COMSOL archives (not CI fixtures):
+
+```bash
+python scripts/audit_comsol_iteration.py \
+  --iteration /path/to/real/closed_loop_iteration \
+  --out /path/to/reports/spectrum_consistency.json --strict
+python scripts/audit_comsol_convergence.py \
+  --archive /path/to/real/refinement_archive \
+  --json-out /path/to/reports/refinement_consistency.json --strict
+```
+
+Both consistency checks must pass *in addition to* independent scrutiny of
+the actual COMSOL physics model, material dispersion, mode selection, boundaries
+and mesh/spectral convergence design. These checks do not automatically
+establish a physically validated sensor, and no such evidence is currently
+present in the tracked repository.
