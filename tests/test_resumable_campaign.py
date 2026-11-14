@@ -1,0 +1,275 @@
+"""Crash/resume and journal-integrity tests, using deliberately FAKE spectra.
+
+No COMSOL program or license is needed; results are always software fixtures
+and cannot be sealed as authentic physics.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from sprpcf.simulation.metrics import extract_metrics
+from sprpcf.simulation.resumable_campaign import (
+    inspect_campaign_checkpoint, run_checkpointed_campaign,
+)
+from sprpcf.simulation.verification_campaign import (
+    prepare_comsol_campaign, seal_comsol_campaign,
+)
+from sprpcf.utils.reproducibility import sha256_file
+
+
+def _campaign(tmp_path: Path):
+    root = tmp_path / "benchmark"
+    root.mkdir()
+    model = tmp_path / "fake_test_model.mph"
+    model.write_bytes(b"NOT COMSOL; TEST FILE ONLY")
+    config = tmp_path / "fixture.yaml"
+    config.write_text("study: test-only\n", encoding="utf-8")
+    requests, selected = [], []
+    for i in range(3):
+        for method in ("tandem_latent", "uniform_random"):
+            common = {
+                "design_seed": 7, "method": method, "target_id": i,
+                "target_group_id": "geometry-" + str(i),
+                "pitch_um": 1.8 + i * 0.1, "d_over_lambda": 0.5,
+                "metal_thickness_nm": 40.0, "channel_radius_um": 0.6,
+                "analyte_ri": 1.33,
+            }
+            requests.append({
+                **common, "request_id": f"fake-{method}-{i}",
+                "target_sensitivity_nm_per_riu": 500.0,
+                "target_fom_per_riu": 25.0, "target_lambda_res_nm": 600.0,
+                "verification_status": "not_run",
+                "fixed_geometry_ri_sweep_required": True,
+            })
+            selected.append(common)
+    pd.DataFrame(requests).to_csv(root / "PHYSICS_VERIFICATION_REQUESTS.csv", index=False)
+    pd.DataFrame(selected).to_csv(root / "selected_designs.csv", index=False)
+    manifest = {
+        "experiment": "matched_surrogate_query_inverse_design",
+        "scientific_submission_ready": False, "evidence_class": "software_only",
+        "outputs_sha256": {
+            n: sha256_file(root / n)
+            for n in ("PHYSICS_VERIFICATION_REQUESTS.csv", "selected_designs.csv")
+        },
+    }
+    (root / "INVERSE_BENCHMARK_MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+    plan = tmp_path / "plan"
+    prepare_comsol_campaign(
+        root, model, config, plan,
+        ri_span=0.04, ri_points=5, solver_version="FAKE TEST VERSION",
+        normalization_scales={
+            "sensitivity_nm_per_riu": 100.0, "fom_per_riu": 10.0,
+            "lambda_res_nm": 20.0,
+        },
+    )
+    return plan, root, model, config
+
+
+def _fake_solver(_model, _config, geometries, *, fail_first: bool = False):
+    wavelengths = np.linspace(550, 650, 101)
+    rows = []
+    for i, geom in enumerate(geometries):
+        if fail_first and i == 0:
+            rows.append({
+                "sample_id": i, "status": "failed: mock eigenmode unavailable",
+                **geom.__dict__,
+            })
+            continue
+        resonance = 600.0 + 400.0 * (geom.analyte_ri - 1.33)
+        losses = 1 + 10 / (1 + ((wavelengths - resonance) / 9.0) ** 2)
+        metrics = extract_metrics(wavelengths, losses)
+        rows.append({
+            "sample_id": i, "status": "ok", **geom.__dict__,
+            "wavelength_nm": ",".join(f"{value:.6f}" for value in wavelengths),
+            "loss_db_per_cm": ",".join(f"{value:.6f}" for value in losses),
+            "lambda_res_nm": metrics.lambda_res_nm, "fwhm_nm": metrics.fwhm_nm,
+        })
+    return pd.DataFrame(rows)
+
+
+def _run(inputs, output, **kwargs):
+    return run_checkpointed_campaign(*inputs, output, **kwargs)
+
+
+def test_batched_fixture_matches_full_stage7_output_contract_and_cannot_seal(tmp_path):
+    plan, root, model, config = _campaign(tmp_path)
+    out = tmp_path / "execution"
+    result = _run((plan, root, model, config), out, batch_size=7, runner=_fake_solver)
+    assert result["execution_mode"] == "checkpointed_batches"
+    assert result["scheduled_solver_evaluations"] == 30
+    assert result["successful_solver_evaluations"] == 30
+    assert result["failed_solver_evaluations"] == 0
+    assert result["real_comsol_backend_invoked"] is False
+    assert result["scientific_submission_ready"] is False
+    assert len(result["chunk_evidence"]) == 5
+    frame = pd.read_csv(out / "sweeps.csv")
+    assert len(frame) == 30
+    assert frame["source"].eq("test_fixture").all()
+    assert frame["evidence_class"].eq("software_only").all()
+    assert result["sweeps_sha256"] == sha256_file(out / "sweeps.csv")
+    inspected = inspect_campaign_checkpoint(plan, root, model, config, out)
+    assert inspected["contract_valid"] and inspected["remaining_solver_evaluations"] == 0
+    solver_log = tmp_path / "dummy.log"
+    solver_log.write_text("NO COMSOL EVER RAN", encoding="utf-8")
+    with pytest.raises(ValueError, match="Cannot seal injected test-runner"):
+        seal_comsol_campaign(
+            plan, out, root, model, config, solver_log,
+            tmp_path / "missing_refinement", tmp_path / "sealed",
+        )
+
+
+def test_interruption_resumes_only_pending_batches_and_reports_progress(tmp_path):
+    inputs = _campaign(tmp_path)
+    out = tmp_path / "execution"
+    calls = []
+
+    def break_after_first(model, config, geometries):
+        calls.append(len(geometries))
+        if len(calls) == 2:
+            raise RuntimeError("simulated process interruption")
+        return _fake_solver(model, config, geometries)
+
+    with pytest.raises(RuntimeError, match="simulated process interruption"):
+        _run(inputs, out, batch_size=7, runner=break_after_first)
+    assert calls == [7, 7]
+    assert not (out / "execution_manifest.json").exists()
+    assert not (out / ".active-comsol-campaign.lock").exists()
+    progress = inspect_campaign_checkpoint(*inputs, out)
+    assert progress["committed_solver_evaluations"] == 7
+    assert progress["remaining_solver_evaluations"] == 23
+    assert progress["committed_batches"] == 1
+    resumed_calls = []
+
+    def resume_solver(model, config, geometries):
+        resumed_calls.append(len(geometries))
+        return _fake_solver(model, config, geometries)
+
+    outcome = _run(inputs, out, batch_size=7, resume=True, runner=resume_solver)
+    assert resumed_calls == [7, 7, 7, 2]
+    assert outcome["scheduled_solver_evaluations"] == 30
+    assert len(outcome["chunk_evidence"]) == 5
+    assert inspect_campaign_checkpoint(*inputs, out)["remaining_solver_evaluations"] == 0
+    with pytest.raises(FileExistsError, match="Already finalized"):
+        _run(inputs, out, batch_size=7, resume=True, runner=resume_solver)
+
+
+def test_modified_completed_checkpoint_refuses_resume_before_new_solver_calls(tmp_path):
+    inputs = _campaign(tmp_path)
+    out = tmp_path / "execution"
+
+    def interrupted(model, config, geometries):
+        if (out / "chunks" / "batch_00000000_00000007.json").is_file():
+            raise RuntimeError("planned midstream failure")
+        return _fake_solver(model, config, geometries)
+
+    with pytest.raises(RuntimeError):
+        _run(inputs, out, batch_size=7, runner=interrupted)
+    first = out / "chunks" / "batch_00000000_00000007.csv"
+    first.write_text(first.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    attempted = []
+
+    def should_not_run(*args):
+        attempted.append(1)
+        raise AssertionError("Tampered batch must not be trusted")
+
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        _run(inputs, out, batch_size=7, resume=True, runner=should_not_run)
+    assert not attempted
+
+
+def test_rejects_reconfigured_resume_and_backend_source_switch(tmp_path):
+    inputs = _campaign(tmp_path)
+    out = tmp_path / "execution"
+
+    def interrupt(*args):
+        raise RuntimeError("runtime unavailable")
+
+    with pytest.raises(RuntimeError):
+        _run(inputs, out, batch_size=7, runner=interrupt)
+    with pytest.raises(ValueError, match="Cannot resume changed"):
+        _run(inputs, out, batch_size=8, resume=True, runner=_fake_solver)
+    # A fixture checkpoint may not be resumed as an actual COMSOL campaign.
+    with pytest.raises(ValueError, match="Cannot resume changed"):
+        _run(inputs, out, batch_size=7, resume=True)
+    model = inputs[2]
+    model.write_bytes(model.read_bytes() + b"TAMPER")
+    with pytest.raises(ValueError, match="model_sha256"):
+        _run(inputs, out, batch_size=7, resume=True, runner=_fake_solver)
+
+
+def test_solver_failures_remain_in_frozen_output_denominator(tmp_path):
+    inputs = _campaign(tmp_path)
+    out = tmp_path / "execution"
+    report = _run(
+        inputs, out, batch_size=7,
+        runner=lambda m, c, g: _fake_solver(m, c, g, fail_first=True),
+    )
+    assert report["scheduled_solver_evaluations"] == 30
+    assert report["failed_solver_evaluations"] == 5
+    assert report["successful_solver_evaluations"] == 25
+    sweep = pd.read_csv(out / "sweeps.csv")
+    assert len(sweep) == 30
+    assert sweep["status"].str.startswith("failed:").sum() == 5
+    assert sweep.loc[sweep["status"] != "ok", "lambda_res_nm"].isna().all()
+
+
+def test_stale_lock_requires_explicit_acknowledgement(tmp_path):
+    inputs = _campaign(tmp_path)
+    out = tmp_path / "execution"
+
+    def fail(*args):
+        raise RuntimeError("software interrupt")
+
+    with pytest.raises(RuntimeError):
+        _run(inputs, out, batch_size=7, runner=fail)
+    lock = out / ".active-comsol-campaign.lock"
+    lock.write_text("ORPHAN LOCK", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Campaign lock exists"):
+        _run(inputs, out, batch_size=7, resume=True, runner=_fake_solver)
+    result = _run(inputs, out, batch_size=7, resume=True,
+                  recover_stale_lock=True, runner=_fake_solver)
+    assert result["scheduled_solver_evaluations"] == 30
+    assert not lock.exists()
+
+
+def test_orphan_checkpoint_without_matching_hash_manifest_is_rejected(tmp_path):
+    inputs = _campaign(tmp_path)
+    out = tmp_path / "execution"
+
+    def fail(*args):
+        raise RuntimeError("software interrupt")
+
+    with pytest.raises(RuntimeError):
+        _run(inputs, out, batch_size=7, runner=fail)
+    (out / "chunks" / "batch_00000000_00000007.csv").write_text(
+        "UNCOMMITTED BYTES", encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Incomplete checkpoint pair"):
+        _run(inputs, out, batch_size=7, resume=True, runner=_fake_solver)
+
+
+def test_readonly_inspect_cli_does_not_try_to_run_comsol(tmp_path):
+    inputs = _campaign(tmp_path)
+    out = tmp_path / "execution"
+    _run(inputs, out, batch_size=8, runner=_fake_solver)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_comsol_verification_campaign.py"
+    plan, root, model, config = inputs
+    run = subprocess.run(
+        [sys.executable, str(script), "inspect",
+         "--plan", str(plan), "--benchmark", str(root), "--model", str(model),
+         "--config", str(config), "--out", str(out)],
+        capture_output=True, text=True, check=False,
+    )
+    assert run.returncode == 0, run.stderr
+    result = json.loads(run.stdout)
+    assert result["operation"] == "inspect"
+    assert result["committed_solver_evaluations"] == 30
+    assert result["remaining_solver_evaluations"] == 0
+    assert result["scientific_submission_ready"] is False
