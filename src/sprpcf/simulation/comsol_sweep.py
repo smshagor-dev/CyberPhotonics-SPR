@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from sprpcf.simulation.metrics import extract_metrics, grouped_finite_difference_sensitivity
+from sprpcf.simulation.metrics import grouped_finite_difference_sensitivity
 from sprpcf.simulation.schema import Geometry
 from sprpcf.simulation.spectrum_quality import normalize_comsol_export, validate_optical_spectrum
 
