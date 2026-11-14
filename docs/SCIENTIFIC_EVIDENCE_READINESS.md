@@ -285,3 +285,15 @@ invalid units and nonfinite geometric parameters. The original COMSOL
 runner and downstream archived/checkpointed spectrum readers use the
 same numerical gate. Synthetic tests of its failure handling do **not**
 verify genuine optical FEM outputs or publication-readiness.
+
+
+## Stage 13: prevent cross-request sensitivity/FOM claims
+
+Arbitrary COMSOL candidate batches may contain overlapping geometry/RI
+requests or incomplete RI sweeps. The updated backend now preserves
+their **raw successful spectra** but does not compute sensitivity or FOM
+from such a batch. Only an explicitly constructed complete, unique-RI
+grid may produce clearly labeled *unqualified diagnostic* derivatives;
+duplicate or failed RI samples block them. See
+[COMSOL_REQUEST_SAFE_DERIVATIVES.md](COMSOL_REQUEST_SAFE_DERIVATIVES.md).
+This change does not fill the missing authenticated COMSOL evidence.
