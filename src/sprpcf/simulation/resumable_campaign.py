@@ -34,7 +34,7 @@ LOCK_NAME = ".active-comsol-campaign.lock"
 
 def _atomic_json(path: Path, data: dict[str, Any]) -> None:
     part = path.with_name(path.name + ".partial")
-    with part.open("x", encoding="utf-8") as stream:
+    with part.open("w", encoding="utf-8") as stream:
         json.dump(data, stream, sort_keys=True, indent=2, allow_nan=False)
         stream.write("\n")
         stream.flush()
@@ -106,10 +106,13 @@ def _normalize_chunk_rows(
 ) -> list[dict[str, Any]]:
     if not isinstance(raw, pd.DataFrame) or len(raw) != len(planned):
         raise ValueError("COMSOL batch did not return the exact planned number of samples")
-    if not set(CHUNK_FIELDS if not local_ids else ("sample_id", "status", "analyte_ri", *[
-            *["d_over_lambda", "pitch_um", "metal_thickness_nm", "channel_radius_um"]
-        ])).issubset(raw.columns):
-        raise ValueError("COMSOL batch rows missing sample IDs, status or physical geometry")
+    required = (
+        ("sample_id", "status", "analyte_ri", "d_over_lambda",
+         "pitch_um", "metal_thickness_nm", "channel_radius_um")
+        if local_ids else CHUNK_FIELDS
+    )
+    if not set(required).issubset(raw.columns) or raw.columns.has_duplicates:
+        raise ValueError("COMSOL batch rows missing required fields or have duplicate headings")
     rows: list[dict[str, Any]] = []
     expected_source = "comsol" if backend == "comsol_mph" else "test_fixture"
     evidence_class = "comsol_physics" if backend == "comsol_mph" else "software_only"
