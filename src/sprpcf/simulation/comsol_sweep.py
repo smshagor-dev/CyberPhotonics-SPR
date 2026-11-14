@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from sprpcf.simulation.metrics import grouped_finite_difference_sensitivity
+from sprpcf.simulation.metrics import finite_difference_sensitivity
 from sprpcf.simulation.schema import Geometry
 from sprpcf.simulation.spectrum_quality import normalize_comsol_export, validate_optical_spectrum
 
@@ -68,7 +68,67 @@ def _normalize_evaluated_spectrum(
     return normalize_comsol_export(wavelength, loss, config)
 
 
-def _run_geometries(model_path: Path, config: dict[str, Any], geometries: Sequence[Geometry]) -> pd.DataFrame:
+def _optional_grid_derivatives(frame: pd.DataFrame) -> pd.DataFrame:
+    """Derive diagnostics ONLY for a uniquely sampled complete explicit RI grid.
+
+    Arbitrary COMSOL batch/request subsets do not carry frozen request
+    identities. Computing finite differences across their rows can silently
+    combine unrelated inverse-design candidates with identical geometry.
+    Duplicated RI points previously raised after COMSOL had already solved
+    the entire expensive batch; now they produce an explicit unqualified
+    diagnostic instead, without discarding the original spectra.
+    """
+    frame = frame.copy()
+    frame["sensitivity_nm_per_riu"] = float("nan")
+    frame["fom_per_riu"] = float("nan")
+    frame["sensitivity_diagnostic_status"] = "solver_failed"
+    success = frame["status"].eq("ok")
+    if not success.any():
+        return frame
+    for _, group in frame.loc[success].groupby(
+        SENSITIVITY_GROUP_COLUMNS, sort=False, dropna=False
+    ):
+        if len(group) < 2:
+            frame.loc[group.index, "sensitivity_diagnostic_status"] = (
+                "insufficient_unique_ri_points"
+            )
+            continue
+        ri = group["analyte_ri"].to_numpy(dtype=float)
+        if not np.isfinite(ri).all() or len(np.unique(ri)) != len(ri):
+            frame.loc[group.index, "sensitivity_diagnostic_status"] = (
+                "duplicate_ri_points_no_derivative"
+            )
+            LOGGER.warning(
+                "Skipping COMSOL grid sensitivity for repeated RI in geometry %s",
+                tuple(group.iloc[0][SENSITIVITY_GROUP_COLUMNS]),
+            )
+            continue
+        if not np.isfinite(group["lambda_res_nm"].to_numpy(dtype=float)).all():
+            frame.loc[group.index, "sensitivity_diagnostic_status"] = (
+                "nonfinite_resonance_no_derivative"
+            )
+            continue
+        estimates = finite_difference_sensitivity(
+            group["lambda_res_nm"].to_numpy(dtype=float), ri,
+        )
+        fwhm = group["fwhm_nm"].to_numpy(dtype=float)
+        if not np.isfinite(fwhm).all() or np.any(fwhm <= 0):
+            frame.loc[group.index, "sensitivity_diagnostic_status"] = (
+                "invalid_fwhm_no_derivative"
+            )
+            continue
+        frame.loc[group.index, "sensitivity_nm_per_riu"] = estimates
+        frame.loc[group.index, "fom_per_riu"] = np.abs(estimates) / fwhm
+        frame.loc[group.index, "sensitivity_diagnostic_status"] = (
+            "grid_diagnostic_only_unqualified"
+        )
+    return frame
+
+
+def _run_geometries(
+    model_path: Path, config: dict[str, Any], geometries: Sequence[Geometry], *,
+    derive_grid_diagnostics: bool = False,
+) -> pd.DataFrame:
     mph = _load_mph()
     wavelength_expression = config.get("wavelength_expression", "lambda")
     loss_expression = config.get("loss_expression", "loss")
@@ -111,16 +171,10 @@ def _run_geometries(model_path: Path, config: dict[str, Any], geometries: Sequen
     frame = pd.DataFrame(rows)
     if frame.empty:
         return frame
-    ok = frame["status"].eq("ok")
-    if ok.any():
-        successful = frame.loc[ok].copy()
-        sensitivity = grouped_finite_difference_sensitivity(successful, SENSITIVITY_GROUP_COLUMNS)
-        frame.loc[successful.index, "sensitivity_nm_per_riu"] = sensitivity
-        frame.loc[successful.index, "fom_per_riu"] = (
-            frame.loc[successful.index, "sensitivity_nm_per_riu"].abs()
-            / frame.loc[successful.index, "fwhm_nm"]
-        )
-    return frame
+    # Finite differences require one deliberately constructed RI grid.
+    # Source-request identity is absent in arbitrary batch calls, so never
+    # calculate sensitivity or FOM across those independent candidates.
+    return _optional_grid_derivatives(frame) if derive_grid_diagnostics else frame
 
 
 def run_comsol_sweep(model_path: Path, config_path: Path) -> pd.DataFrame:
@@ -128,7 +182,10 @@ def run_comsol_sweep(model_path: Path, config_path: Path) -> pd.DataFrame:
     config = _load_config(config_path)
     if "sweep" not in config:
         raise ValueError("COMSOL sweep configuration requires a 'sweep' mapping.")
-    return _run_geometries(model_path, config, _grid(config["sweep"]))
+    return _run_geometries(
+        model_path, config, _grid(config["sweep"]),
+        derive_grid_diagnostics=True,
+    )
 
 
 def run_comsol_geometries(
@@ -136,9 +193,17 @@ def run_comsol_geometries(
     config_path: Path,
     geometries: Sequence[Geometry],
 ) -> pd.DataFrame:
-    """Run only explicitly selected geometries, used by the active-learning loop."""
+    """Run raw requested geometries; never infer derivatives between requests.
+
+    This method is used for inverse candidates, live API calls and COMSOL
+    verification batches, where a batch boundary does NOT define a complete
+    independent RI sweep. Qualified sensitivities are computed later from
+    fixed-geometry, request-bound complete RI sweeps with true source review.
+    """
     config = _load_config(config_path)
-    return _run_geometries(model_path, config, geometries)
+    return _run_geometries(
+        model_path, config, geometries, derive_grid_diagnostics=False
+    )
 
 
 def write_dataset(frame: pd.DataFrame, output: Path, metadata: dict[str, Any] | None = None) -> None:
