@@ -94,13 +94,13 @@ def test_declared_comsol_source_remains_unqualified(tmp_path: Path) -> None:
 
 
 def test_rejects_duplicate_ri_and_nonfinite_rows_even_with_matching_hash(tmp_path: Path) -> None:
-    path = _dataset(tmp_path)
     for mode in ("duplicate", "nonfinite"):
+        path = _dataset(tmp_path)
         frame = pd.read_csv(path)
         if mode == "duplicate":
             frame.iloc[1, frame.columns.get_loc("analyte_ri")] = frame.iloc[0]["analyte_ri"]
         else:
-            frame.iloc[1, frame.columns.get_loc("lambda_res_nm")] = np.nan
+            frame.iloc[1, frame.columns.get_loc("lambda_res_nm")] = np.inf
         frame.to_csv(path, index=False)
         sidecar = path.with_name(path.name + ".meta.json")
         data = json.loads(sidecar.read_text(encoding="utf-8"))
