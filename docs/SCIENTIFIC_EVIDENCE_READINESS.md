@@ -193,3 +193,26 @@ A blocker-only package can be generated without real COMSOL archives:
 C03 physical correctness, C04 independently tested tandem superiority and
 C06 journal readiness remain blocked until external experiments, independent
 review and stronger statistical design are completed.
+
+
+## Stage 7: run actual COMSOL evaluation of frozen inverse designs
+
+The first real COMSOL request execution entrypoint is now documented in
+[REAL_COMSOL_CAMPAIGN.md](REAL_COMSOL_CAMPAIGN.md). It freezes Stage 4
+request/model/config hashes and RI/normalization protocol **before**
+execution, invokes the existing local `mph` COMSOL backend for all queued
+RI points (no synthetic fallback), records all solver failures and outputs
+raw wavelength/loss spectra. Final sealing requires a separately sourced
+native solver log and a matching, numerically consistent refinement archive.
+
+```bash
+python scripts/run_comsol_verification_campaign.py --help
+python scripts/run_comsol_verification_campaign.py plan --help
+python scripts/run_comsol_verification_campaign.py run --help
+python scripts/run_comsol_verification_campaign.py seal --help
+```
+
+The executable path and unit-tested failure handling **do not** mean
+COMSOL has been run on the repository's test infrastructure: the real
+model, license, genuine native solver logs and physical review have not
+been supplied. The publication evidence gate remains closed.
