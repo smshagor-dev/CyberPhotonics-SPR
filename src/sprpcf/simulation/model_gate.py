@@ -221,3 +221,79 @@ def audit_comsol_model_readiness(
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n",
                            encoding="utf-8")
     return report
+
+
+
+def validate_live_pilot_report(
+    report_path: str | Path, plan_dir: str | Path,
+    benchmark_dir: str | Path, model_path: str | Path,
+    config_path: str | Path,
+) -> dict[str, Any]:
+    """Require source-bound real-backend pilot success before a long CLI run.
+
+    A local JSON/hash match still cannot authenticate COMSOL's physical
+    execution or validate Maxwell equations. It is an operational safeguard.
+    """
+    report_file = _require_file(report_path)
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        raise ValueError("Malformed COMSOL readiness report")
+    plan, planned = _check_frozen_plan(
+        plan_dir, benchmark_dir, model_path, config_path,
+    )
+    required_flags = {
+        "schema_version": 1,
+        "audit_type": "comsol_model_and_pilot_readiness",
+        "mode": "pilot",
+        "observed_backend": "comsol_mph_api",
+        "static_valid": True,
+        "live_model_checked": True,
+        "pilot_solver_called": True,
+        "pilot_numerically_consistent": True,
+        "pilot_status": "ok",
+        "ready_for_full_solver_run": True,
+        "source_authenticity_verified": False,
+        "physical_correctness_verified": False,
+        "scientific_submission_ready": False,
+    }
+    for key, expected in required_flags.items():
+        if report.get(key) != expected:
+            raise ValueError("Missing genuine pilot readiness condition: " + key)
+    checks = report.get("preflight_checks")
+    if (report.get("errors") or not isinstance(checks, list) or not checks
+            or any(not isinstance(check, dict) or check.get("passed") is not True
+                   for check in checks)):
+        raise ValueError("Real pilot report includes errors or failed model checks")
+    paths = {
+        "model_sha256": _require_file(model_path, suffix=".mph"),
+        "config_sha256": _require_file(config_path),
+        "campaign_plan_sha256": _require_file(Path(plan_dir) / "campaign_plan.json"),
+        "planned_sweeps_sha256": _require_file(Path(plan_dir) / "planned_sweeps.csv"),
+    }
+    for name, file in paths.items():
+        if report.get(name) != sha256_file(file):
+            raise ValueError("Pilot readiness source hash mismatch: " + name)
+    central = int(plan["ri_points"]) // 2
+    expected = planned.iloc[central]
+    if (report.get("pilot_sample_id") != int(expected["sample_id"])
+            or report.get("pilot_request_id") != str(expected["request_id"])):
+        raise ValueError("Pilot sample is not the frozen first request central RI")
+    if report.get("pilot_spectrum_file") != "pilot_single_ri_spectrum.csv":
+        raise ValueError("Pilot archive path is not canonical")
+    spectrum = _require_file(report_file.parent / "pilot_single_ri_spectrum.csv")
+    if sha256_file(spectrum) != report.get("pilot_spectrum_sha256"):
+        raise ValueError("Pilot raw spectrum hash mismatch")
+    rows = pd.read_csv(spectrum, dtype={"request_id": str})
+    if (len(rows) != 1 or rows.iloc[0]["request_id"] != str(expected["request_id"])
+            or rows.iloc[0]["status"] != "ok"
+            or rows.iloc[0]["source"] != "comsol"):
+        raise ValueError("Pilot numeric source row does not match the frozen request")
+    if not math.isclose(float(rows.iloc[0]["analyte_ri"]),
+                        float(expected["analyte_ri"]), abs_tol=1e-9, rel_tol=0):
+        raise ValueError("Pilot target refractive index was altered")
+    return {
+        "operational_pilot_verified": True,
+        "pilot_readiness_report_sha256": sha256_file(report_file),
+        "source_authenticity_verified": False,
+        "scientific_submission_ready": False,
+    }
