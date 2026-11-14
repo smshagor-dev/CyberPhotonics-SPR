@@ -55,3 +55,4 @@ Checkpointed sealing now requires the complete session registry, session-specifi
 All completion flags remain unqualified. Independent COMSOL model, material/PML/mesh review, actual source authenticity and external validation are **not** satisfied merely by consistent session logs or green CI.
 
 Research blocker: https://github.com/smshagor-dev/CyberPhotonics-SPR/issues/42
+A further research-integrity safeguard rejects byte-identical native log contents registered for different execution sessions. Each actual solver invocation must retain independently distinguishable original native log evidence; do not reuse one log merely to satisfy the expected session count.
