@@ -113,12 +113,14 @@ def validate_optical_spectrum(
         metrics = extract_metrics(w, loss)
     except (TypeError, ValueError, FloatingPointError) as exc:
         raise ValueError("Optical resonance extraction failed") from exc
-    if (not math.isfinite(metrics.lambda_res_nm) or not math.isfinite(metrics.fwhm_nm)
+    if not math.isfinite(metrics.lambda_res_nm):
+        raise ValueError("Optical resonance is missing/nonfinite")
+    if not (w[2] < metrics.lambda_res_nm < w[-3]):
+        raise ValueError("Optical resonance lies too close to the spectral boundary")
+    if (not math.isfinite(metrics.fwhm_nm)
             or not math.isfinite(metrics.peak_loss_db_per_cm)
             or metrics.fwhm_nm <= 0):
         raise ValueError("Optical resonance or FWHM is missing/nonfinite")
-    if not (w[2] < metrics.lambda_res_nm < w[-3]):
-        raise ValueError("Optical resonance lies too close to the spectral boundary")
     resolution = float(np.median(steps))
     if metrics.fwhm_nm < min_fwhm_steps * resolution:
         raise ValueError("Optical resonance FWHM is under-resolved by the wavelength grid")
