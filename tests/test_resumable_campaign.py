@@ -397,6 +397,10 @@ def test_resumed_mock_backend_requires_distinct_native_log_for_every_session(
     with pytest.raises(ValueError, match="Missing or symlinked solver session evidence"):
         audit_native_session_logs(out, contract, inspected["chunk_evidence"])
     second = inspected["session_evidence"][1]
+    with pytest.raises(ValueError, match="Duplicate native solver log bytes"):
+        bind_native_session_log(
+            out, second["session_id"], first_log, contract, inspected["chunk_evidence"],
+        )
     second_log = tmp_path / "second_native_fixture.log"
     second_log.write_text("FAKE LOG - SECOND COMSOL SESSION NEVER RAN", encoding="utf-8")
     bind_native_session_log(out, second["session_id"], second_log, contract,
