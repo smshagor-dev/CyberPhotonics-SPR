@@ -216,6 +216,24 @@ jobs:
         run: |
           python -c "import json; from pathlib import Path; p=Path('/tmp/stage7_fixture_plan'); assert (p/'campaign_plan.json').is_file(); m=json.loads((p/'campaign_plan.json').read_text()); assert m['physical_source_authenticity_verified'] is False; assert not (p/'sweeps.csv').exists()"
 
+      - name: Verify Stage 10 COMSOL model gate fails closed on example fixture
+        if: matrix.python-version == '3.11'
+        run: |
+          python scripts/probe_comsol_model.py \
+            --plan /tmp/stage7_fixture_plan \
+            --benchmark /tmp/stage4_inverse_benchmark \
+            --model /tmp/stage7_DUMMY_NOT_COMSOL.mph \
+            --config configs/comsol_sweep.example.yaml \
+            --out /tmp/stage10_static_blockers
+          python -c "import json; from pathlib import Path; p=Path('/tmp/stage10_static_blockers'); r=json.loads((p/'COMSOL_MODEL_PILOT_READINESS.json').read_text()); assert r['static_valid'] is False; assert r['live_model_checked'] is False; assert r['pilot_solver_called'] is False; assert r['ready_for_full_solver_run'] is False; assert r['physical_correctness_verified'] is False; assert r['scientific_submission_ready'] is False; assert not (p/'pilot_single_ri_spectrum.csv').exists()"
+      - name: Upload Stage 10 model readiness blocker report
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v7
+        with:
+          name: stage10-model-readiness-blockers-${{ github.sha }}
+          if-no-files-found: error
+          path: /tmp/stage10_static_blockers/
+
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
