@@ -239,6 +239,10 @@ jobs:
         run: |
           pytest -q -W error tests/test_comsol_ri_response.py
           python -c "import pathlib; root=pathlib.Path('/tmp/stage7_fixture_plan'); assert not (root/'RI_PROBE_SPECTRA.csv').exists(); assert not (root/'COMSOL_RI_RESPONSE_READINESS.json').exists()"
+      - name: Stage 12 COMSOL raw spectrum integrity (synthetic fixtures only)
+        if: matrix.python-version == '3.11'
+        run: |
+          pytest -q -W error tests/test_solver_spectrum_quality.py tests/test_comsol_sweep.py
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
