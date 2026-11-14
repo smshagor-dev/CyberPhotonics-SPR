@@ -62,6 +62,7 @@ python scripts/run_comsol_verification_campaign.py run \
   --benchmark outputs/research/stage4 \
   --model /path/to/validated/real_pcf_spr.mph \
   --config /path/to/real_comsol_settings.yaml \
+  --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json \
   --out outputs/research/stage7_execution
 ```
 
@@ -160,3 +161,22 @@ rerunning completed samples, and the original `seal` command now
 verifies the **entire batch ledger** against the final results CSV.
 These checks do not replace retention of authentic native solver logs
 for every run session and independent model/source qualification.
+
+
+## Stage 10: validate actual COMSOL model readiness before expensive runs
+
+Use the [COMSOL model and pilot gate](COMSOL_MODEL_PILOT_GATE.md)
+to verify exact frozen plan/model/config hashes and require real COMSOL
+structural inspection (parameter names, studies, materials, geometry,
+mesh, physics) before running long campaigns. A strictly opt-in
+`--live --pilot --strict` command solves **one** centered RI point
+through the actual `mph` backend and checks spectral consistency.
+
+```bash
+python scripts/probe_comsol_model.py --help
+```
+
+The static check does not invoke COMSOL, and the pilot cannot establish
+sensitivity or numerical physics correctness without full RI sweeps,
+convergence and independent source review. This does not remove the
+research blocker for real model and results.
