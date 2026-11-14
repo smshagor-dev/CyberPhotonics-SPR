@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 edge = [
-  "tensorflow-cpu>=2.14; platform_system == 'Linux' and platform_machine == 'x86_64'",
+  "tensorflow-cpu>=2.21.0; platform_system == 'Linux' and platform_machine == 'x86_64'",
   "tensorflow>=2.14; platform_system != 'Linux' or platform_machine != 'x86_64'",
   "ai-edge-litert>=2.3.0,<3",
 ]
