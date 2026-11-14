@@ -7,6 +7,8 @@ authenticate the external solver or the underlying electromagnetic physics.
 from __future__ import annotations
 
 import csv
+import hashlib
+import io
 import json
 import math
 import os
@@ -276,8 +278,16 @@ def inspect_campaign_checkpoint(
     if contract != expected:
         raise ValueError("Checkpoint contract differs from frozen campaign inputs")
     completed, metadata = _read_committed_chunks(output, planned, expected)
+    canonical = io.StringIO(newline="")
+    writer = csv.DictWriter(canonical, fieldnames=SWEEP_FIELDS)
+    writer.writeheader()
+    writer.writerows({key: row[key] for key in SWEEP_FIELDS} for row in completed)
+    merged_sha256 = hashlib.sha256(canonical.getvalue().encode("utf-8")).hexdigest()
     return {
         "contract_valid": True,
+        "checkpoint_manifest_sha256": sha256_file(output / CHECKPOINT_NAME),
+        "chunk_evidence": metadata,
+        "canonical_merged_sweeps_sha256": merged_sha256,
         "committed_solver_evaluations": len(completed),
         "remaining_solver_evaluations": len(planned) - len(completed),
         "failed_solver_evaluations": sum(item["status"] != "ok" for item in completed),
