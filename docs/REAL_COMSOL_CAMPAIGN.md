@@ -148,3 +148,15 @@ the plan builder with a deliberately fake file; it does not run or claim
 a COMSOL simulation, and cannot provide raw optical results.
 
 Scientific research blocker: https://github.com/smshagor-dev/CyberPhotonics-SPR/issues/42
+
+
+## Stage 8: crash-resilient batch execution
+
+For lengthy COMSOL sweeps, prefer the source-bound and resumable
+`run-batched` command described in
+[RESUMABLE_COMSOL_CAMPAIGN.md](RESUMABLE_COMSOL_CAMPAIGN.md).
+Its per-batch journal allows interrupted sessions to resume without
+rerunning completed samples, and the original `seal` command now
+verifies the **entire batch ledger** against the final results CSV.
+These checks do not replace retention of authentic native solver logs
+for every run session and independent model/source qualification.
