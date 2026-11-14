@@ -149,6 +149,11 @@ def _inputs(
         if sha256_file(file) != manifest.get(name + "_sha256"):
             raise ValueError(f"COMSOL {name} archive SHA-256 mismatch")
         files[name] = file
+    if (manifest.get("execution_mode") == "checkpointed_batches"
+            or manifest.get("session_log_provenance_required") is True
+            or manifest.get("session_log_evidence") is not None):
+        from sprpcf.simulation.session_provenance import audit_sealed_session_logs
+        audit_sealed_session_logs(archive_dir, manifest)
     if files["model"].suffix.lower() != ".mph":
         raise ValueError("COMSOL archive must contain an .mph model file")
     if sha256_file(files["model"]) != ref_report["file_sha256"].get("model"):
