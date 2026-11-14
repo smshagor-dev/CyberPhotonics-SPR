@@ -49,7 +49,21 @@ After a real pilot passes, run a complete Stage 8 campaign, preserve Stage 9 nat
 Once the real pilot passes, both full solver commands require the saved report:
 
 ```bash
-python scripts/run_comsol_verification_campaign.py run-batched --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/validated_pcf_spr.mph --config /real/solver_settings.yaml --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json --batch-size 8 --out outputs/research/stage8_run
+python scripts/run_comsol_verification_campaign.py run-batched --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/validated_pcf_spr.mph --config /real/solver_settings.yaml --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json --ri-response-report outputs/research/stage11_ri_probe/COMSOL_RI_RESPONSE_READINESS.json --batch-size 8 --out outputs/research/stage8_run
 ```
 
 The report validator compares the frozen model/config/plan/sweep digests and the original pilot spectrum SHA-256; it recomputes the optical pilot metrics. A static report, a software fixture, an altered file, a missing spectrum or a failed pilot **cannot authorize** the full CLI run. The Python test-runner API retains its separate software-fixture path for CI. A locally editable JSON file is not a cryptographic attestation of actual COMSOL execution: retain the external solver logs and independently check the model.
+
+## Stage 11: RI parameter coupling and repeatability before long solves
+
+After passing the Stage 10 one-RI model gate, run the separate
+[RI response sanity diagnostic](COMSOL_RI_RESPONSE_GUARD.md). It solves
+the first frozen geometry at low, center, high, then **repeated center**
+analyte RI, checking that the resonance actually responds monotonically
+and repeatably to RI changes on a resolved wavelength grid.
+
+Both `run` and `run-batched` now require **two** source-bound reports:
+`--readiness-report` and `--ri-response-report`. CI exercises software
+fixtures and cannot pass them off as physical simulations. A diagnostic
+pass does not establish full-sweep sensitivity, mesh convergence, solver
+authenticity or journal-ready numerical evidence.

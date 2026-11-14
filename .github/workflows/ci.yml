@@ -234,6 +234,11 @@ jobs:
           if-no-files-found: error
           path: /tmp/stage10_static_blockers/
 
+      - name: Stage 11 RI coupling and repeatability falsification (synthetic only)
+        if: matrix.python-version == '3.11'
+        run: |
+          pytest -q -W error tests/test_comsol_ri_response.py
+          python -c "import pathlib; root=pathlib.Path('/tmp/stage7_fixture_plan'); assert not (root/'RI_PROBE_SPECTRA.csv').exists(); assert not (root/'COMSOL_RI_RESPONSE_READINESS.json').exists()"
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
