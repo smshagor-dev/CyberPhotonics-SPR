@@ -382,6 +382,21 @@ def seal_comsol_campaign(
             or run.get("successful_solver_evaluations", -1) + run.get("failed_solver_evaluations", -1)
             != plan["planned_solver_evaluations"]):
         raise ValueError("Run ledger has incomplete sample accounting")
+    if run.get("execution_mode") == "checkpointed_batches":
+        # Imported here to avoid an import cycle: the batch runner reuses the
+        # original Stage 7 plan validator and sealing contract.
+        from sprpcf.simulation.resumable_campaign import inspect_campaign_checkpoint
+
+        checked = inspect_campaign_checkpoint(
+            plan_dir, benchmark_dir, model, config, run_root,
+        )
+        if (checked["backend_kind"] != "comsol_mph"
+                or checked["remaining_solver_evaluations"] != 0
+                or checked["failed_solver_evaluations"] != run.get("failed_solver_evaluations")
+                or checked["checkpoint_manifest_sha256"] != run.get("checkpoint_manifest_sha256")
+                or checked["chunk_evidence"] != run.get("chunk_evidence")
+                or checked["canonical_merged_sweeps_sha256"] != expected["sweeps_sha256"]):
+            raise ValueError("Checkpointed COMSOL run chunks disagree with sealed execution manifest/sweeps")
     ref_root = Path(refinement_archive).resolve()
     verification = audit_refinement_archive(ref_root)
     if not verification["convergence_consistent"]:
