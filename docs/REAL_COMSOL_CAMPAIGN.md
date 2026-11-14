@@ -63,6 +63,7 @@ python scripts/run_comsol_verification_campaign.py run \
   --model /path/to/validated/real_pcf_spr.mph \
   --config /path/to/real_comsol_settings.yaml \
   --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json \
+  --ri-response-report outputs/research/stage11_ri_probe/COMSOL_RI_RESPONSE_READINESS.json \
   --out outputs/research/stage7_execution
 ```
 
@@ -180,3 +181,18 @@ The static check does not invoke COMSOL, and the pilot cannot establish
 sensitivity or numerical physics correctness without full RI sweeps,
 convergence and independent source review. This does not remove the
 research blocker for real model and results.
+
+
+## Stage 11: RI parameter coupling and repeatability before long solves
+
+After passing the Stage 10 one-RI model gate, run the separate
+[RI response sanity diagnostic](COMSOL_RI_RESPONSE_GUARD.md). It solves
+the first frozen geometry at low, center, high, then **repeated center**
+analyte RI, checking that the resonance actually responds monotonically
+and repeatably to RI changes on a resolved wavelength grid.
+
+Both `run` and `run-batched` now require **two** source-bound reports:
+`--readiness-report` and `--ri-response-report`. CI exercises software
+fixtures and cannot pass them off as physical simulations. A diagnostic
+pass does not establish full-sweep sensitivity, mesh convergence, solver
+authenticity or journal-ready numerical evidence.
