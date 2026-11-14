@@ -11,6 +11,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from sprpcf.simulation.model_gate import validate_live_pilot_report
+from sprpcf.simulation.ri_response_gate import validate_ri_response_report
 from sprpcf.simulation.resumable_campaign import (inspect_campaign_checkpoint, run_checkpointed_campaign)
 from sprpcf.simulation.session_provenance import (
     audit_native_session_logs, bind_native_session_log, close_crashed_solver_session,
@@ -53,11 +54,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--plan", type=Path, required=True)
     run.add_argument("--readiness-report", type=Path, required=True,
                      help="Source-bound PASS report from real --live --pilot --strict model probe")
+    run.add_argument("--ri-response-report", type=Path, required=True,
+                     help="Source-bound PASS from real low/center/high + center-repeat RI diagnostic")
     batched = commands.add_parser("run-batched", help="Hash-checkpoint every COMSOL batch; resume without rerunning completed samples")
     _paths(batched)
     batched.add_argument("--plan", type=Path, required=True)
     batched.add_argument("--readiness-report", type=Path, required=True,
                          help="Source-bound PASS report from real --live --pilot --strict model probe")
+    batched.add_argument("--ri-response-report", type=Path, required=True,
+                         help="Source-bound PASS from real low/center/high + center-repeat RI diagnostic")
     batched.add_argument("--batch-size", type=int, default=8)
     batched.add_argument("--resume", action="store_true", help="Verify existing committed batches and resume remaining samples")
     batched.add_argument("--recover-stale-lock", action="store_true",
@@ -105,12 +110,20 @@ def main() -> None:
         validate_live_pilot_report(
             args.readiness_report, args.plan, args.benchmark, args.model, args.config,
         )
+        validate_ri_response_report(
+            args.ri_response_report, args.plan, args.benchmark, args.model,
+            args.config, args.readiness_report,
+        )
         result = execute_comsol_campaign(
             args.plan, args.benchmark, args.model, args.config, args.out,
         )
     elif args.command == "run-batched":
         validate_live_pilot_report(
             args.readiness_report, args.plan, args.benchmark, args.model, args.config,
+        )
+        validate_ri_response_report(
+            args.ri_response_report, args.plan, args.benchmark, args.model,
+            args.config, args.readiness_report,
         )
         result = run_checkpointed_campaign(
             args.plan, args.benchmark, args.model, args.config, args.out,
