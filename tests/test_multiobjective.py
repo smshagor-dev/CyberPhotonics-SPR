@@ -7,7 +7,7 @@ from sprpcf.ml.checkpoint_io import load_tandem_checkpoint, save_tandem_checkpoi
 from sprpcf.ml.dataset import CONDITION_COLUMNS, GEOMETRY_COLUMNS, METRIC_COLUMNS, DesignDataModule
 from sprpcf.ml.ensemble import build_forward_ensemble_checkpoint
 from sprpcf.ml.losses import GEOMETRY_MAX, GEOMETRY_MIN
-from sprpcf.ml.multiobjective import fit_calibration_profile, optimize_target_table, pareto_ranks
+from sprpcf.ml.multiobjective import _groupwise_max_residuals, fit_calibration_profile, optimize_target_table, pareto_ranks
 from sprpcf.ml.tandem import ForwardNetwork, InverseGenerator
 from sprpcf.simulation.synthetic import build_synthetic_dataset
 
@@ -52,6 +52,10 @@ def test_calibration_and_multiobjective_design_are_finite_and_bounded(tmp_path):
     checkpoint_path, data_path, frame = _make_checkpoint(tmp_path)
     profile = fit_calibration_profile(checkpoint_path, data_path, confidence=0.9)
     assert profile.calibration_rows > 0
+    assert profile.calibration_groups > 0
+    assert profile.calibration_groups < profile.calibration_rows
+    # Two held-out geometries cannot support a nominal 90% finite-sample bound.
+    assert not profile.finite_sample_coverage_supported
     assert profile.training_reference_rows > 0
     assert np.all(np.isfinite(profile.metric_half_width))
     assert profile.ood_distance_threshold > 0
@@ -103,3 +107,10 @@ def test_forward_ensemble_builder_preserves_primary_and_adds_members(tmp_path):
     assert len(upgraded["forward_ensemble_state_dicts"]) == 2
     for key, value in base["forward_state_dict"].items():
         assert torch.equal(value, upgraded["forward_ensemble_state_dicts"][0][key])
+
+
+def test_conformal_residuals_use_geometry_group_maxima() -> None:
+    residuals = np.array([[1.0, 2.0], [3.0, 1.0], [2.0, 5.0], [4.0, 2.0]])
+    groups = np.array([10, 10, 20, 20])
+    grouped = _groupwise_max_residuals(residuals, groups)
+    np.testing.assert_allclose(grouped, [[3.0, 2.0], [4.0, 5.0]])

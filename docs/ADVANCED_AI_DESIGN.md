@@ -8,7 +8,7 @@ The advanced design layer adds four independent safety/quality signals before CO
 
 1. **Latent candidate search** — generate many inverse designs per sensing target instead of trusting one neural output.
 2. **Pareto ranking** — separately minimize normalized sensitivity error, FOM error, resonance-wavelength error, fabrication projection distance, and OOD score.
-3. **Calibrated uncertainty** — estimate metric error radii from the leakage-resistant held-out geometry split using finite-sample conformal residual quantiles.
+3. **Geometry-group calibration** — estimate metric error radii from the maximum residual within each held-out fixed-geometry RI sweep, then apply conformal quantiles across independent geometry groups. The output explicitly flags when the available group count cannot support the nominal requested finite-sample coverage.
 4. **Domain awareness** — compute a Mahalanobis distance in the standardized geometry + analyte-RI space and normalize it by a training-domain quantile. `ood_score <= 1` is inside the calibrated reference envelope.
 
 When the checkpoint contains a forward ensemble, the prediction interval combines the held-out conformal residual radius with per-candidate ensemble disagreement. A single-forward checkpoint still works; ensemble disagreement is then zero and the conformal/OOD layers remain active.

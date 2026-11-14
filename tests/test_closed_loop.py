@@ -253,3 +253,98 @@ def test_closed_loop_iteration_writes_auditable_artifacts(tmp_path: Path) -> Non
     augmented = pd.read_csv(artifacts.augmented_dataset)
     assert len(augmented) == 6
     assert all(column in augmented.columns for column in GEOMETRY_COLUMNS)
+    augmented_samples = augmented.loc[augmented["source"].notna()]
+    assert augmented_samples["source"].eq("synthetic").all()
+    assert augmented_samples["evidence_class"].eq("software_only").all()
+
+
+def _five_point_validation_frame() -> pd.DataFrame:
+    ri_values = build_validation_ri_values(1.33, span=0.04, points=5)
+    return pd.DataFrame(
+        [
+            {
+                "target_id": 0,
+                "target_sensitivity_nm_per_riu": 800.0,
+                "target_fom_per_riu": 20.0,
+                "target_lambda_res_nm": 500.0,
+                "target_analyte_ri": 1.33,
+                "status": "ok",
+                "pitch_um": 2.0,
+                "d_over_lambda": 0.5,
+                "metal_thickness_nm": 45.0,
+                "channel_radius_um": 0.6,
+                "analyte_ri": ri,
+                "lambda_res_nm": 500.0 + 800.0 * (ri - 1.33),
+                "fwhm_nm": 40.0,
+            }
+            for ri in ri_values
+        ]
+    )
+
+
+def test_closed_loop_rejects_mixed_geometry_even_with_five_successful_points() -> None:
+    simulation = _five_point_validation_frame()
+    simulation.loc[3:, "pitch_um"] = 2.2
+    result = evaluate_closed_loop_results(
+        simulation, AcceptanceThresholds(), expected_ri_points=5
+    )
+    assert not bool(result.iloc[0]["accepted"])
+    assert "geometry changed across RI sweep" in result.iloc[0]["reason"]
+
+
+def test_closed_loop_rejects_duplicate_ri_even_when_count_is_correct() -> None:
+    simulation = _five_point_validation_frame()
+    simulation.loc[4, "analyte_ri"] = simulation.loc[3, "analyte_ri"]
+    simulation.loc[4, "lambda_res_nm"] = simulation.loc[3, "lambda_res_nm"]
+    result = evaluate_closed_loop_results(
+        simulation, AcceptanceThresholds(), expected_ri_points=5
+    )
+    assert not bool(result.iloc[0]["accepted"])
+    assert "duplicate" in result.iloc[0]["reason"]
+
+
+def test_closed_loop_rejects_inconsistent_target_metadata() -> None:
+    simulation = _five_point_validation_frame()
+    simulation.loc[2, "target_fom_per_riu"] = 99.0
+    result = evaluate_closed_loop_results(
+        simulation, AcceptanceThresholds(), expected_ri_points=5
+    )
+    assert not bool(result.iloc[0]["accepted"])
+    assert "target metadata changed" in result.iloc[0]["reason"]
+
+
+def test_solver_returned_wrong_geometry_is_failed_before_evaluation() -> None:
+    from sprpcf.validation.closed_loop import _attach_request_metadata, _target_requests
+
+    designed = pd.DataFrame([{
+        "sensitivity_nm_per_riu": 800.0,
+        "fom_per_riu": 20.0,
+        "lambda_res_nm": 500.0,
+        "analyte_ri": 1.33,
+        "pitch_um": 2.0,
+        "d_over_lambda": 0.5,
+        "metal_thickness_nm": 45.0,
+        "channel_radius_um": 0.6,
+    }])
+    plan, geometries = _target_requests(designed, ri_span=0.04, ri_points=5)
+    actual = _linear_runner(geometries)
+    actual.loc[2, "pitch_um"] = 2.4
+    merged = _attach_request_metadata(actual, plan)
+    assert merged.loc[2, "status"].startswith("failed:")
+    result = evaluate_closed_loop_results(merged, AcceptanceThresholds(), expected_ri_points=5)
+    assert not bool(result.iloc[0]["accepted"])
+
+
+def test_custom_runner_cannot_be_labeled_comsol_physics(tmp_path: Path) -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="Injected runners are software-only"):
+        run_closed_loop_iteration(
+            checkpoint_path=tmp_path / "unused.pt",
+            target_path=tmp_path / "unused-targets.csv",
+            base_dataset_path=tmp_path / "unused-data.csv",
+            output_dir=tmp_path / "out",
+            backend="comsol",
+            runner=_linear_runner,
+        )
+

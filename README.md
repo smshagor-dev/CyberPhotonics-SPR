@@ -512,7 +512,7 @@ For calibration row `i` and metric `j`, the absolute residual is
 r_{ij}=|\hat m_{ij}-m_{ij}|.
 ```
 
-A finite-sample conformal quantile is estimated independently for each metric. Candidate intervals combine the calibrated residual radius with ensemble disagreement. These intervals describe held-out model error behavior; they do not replace physics verification.
+Residuals are aggregated by held-out physical geometry: for each geometry and metric, the largest residual across its correlated RI rows is the calibration unit. A conformal quantile is then estimated independently for each metric over geometry groups, not individual RI rows. The calibration profile reports both the row and geometry-group count, and flags when too few groups exist to support the requested finite-sample coverage. Candidate ranking radii combine the resulting residual radius with ensemble disagreement; they are not independent electromagnetic-physics validation.
 
 ## 5.3 Mahalanobis OOD score
 

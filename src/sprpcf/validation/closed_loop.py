@@ -159,7 +159,12 @@ def _target_requests(
                 analyte_ri=float(analyte_ri),
             )
             geometry.validate()
-            plans.append({"sample_id": sample_id, **base})
+            plans.append({
+                "sample_id": sample_id,
+                **base,
+                **{f"requested_{column}": float(getattr(geometry, column)) for column in GEOMETRY_COLUMNS},
+                "requested_analyte_ri": float(geometry.analyte_ri),
+            })
             geometries.append(geometry)
             sample_id += 1
     return pd.DataFrame(plans), geometries
@@ -208,6 +213,18 @@ def _attach_request_metadata(simulation: pd.DataFrame, request_plan: pd.DataFram
     if "status" not in merged.columns:
         merged["status"] = "missing"
     merged["status"] = merged["status"].fillna("missing")
+    # Never trust a backend to have evaluated the geometry/RI it was asked to simulate.
+    # Preserve the row as a failed attempt so the full RI sweep is rejected.
+    mismatched = np.zeros(len(merged), dtype=bool)
+    for column in [*GEOMETRY_COLUMNS, "analyte_ri"]:
+        if column not in merged:
+            merged[column] = np.nan
+        actual = pd.to_numeric(merged[column], errors="coerce").to_numpy(dtype=float)
+        expected = pd.to_numeric(merged[f"requested_{column}"], errors="coerce").to_numpy(dtype=float)
+        mismatched |= ~np.isfinite(actual) | ~np.isclose(actual, expected, rtol=0.0, atol=1e-9)
+    merged.loc[merged["status"].eq("ok") & mismatched, "status"] = (
+        "failed: returned geometry/RI differs from requested geometry/RI"
+    )
     for column in ["lambda_res_nm", "fwhm_nm", "sensitivity_nm_per_riu", "fom_per_riu"]:
         if column not in merged.columns:
             merged[column] = np.nan
@@ -240,22 +257,50 @@ def evaluate_closed_loop_results(
     if missing:
         raise ValueError(f"Simulation results are missing verification columns: {missing}")
 
-    successful = simulation.loc[simulation["status"].eq("ok")].copy()
-    sweep_report = fixed_geometry_sweep_report(
-        successful,
-        group_columns=["target_id", *GEOMETRY_COLUMNS],
-    )
-    sweep_lookup = {int(row["target_id"]): row for row in sweep_report.to_dict(orient="records")}
-
     records: list[dict[str, Any]] = []
     for target_id, group in simulation.groupby("target_id", sort=True):
         first = group.iloc[0]
         reasons: list[str] = []
         ok_group = group.loc[group["status"].eq("ok")].copy()
+        if len(group) != expected_ri_points:
+            reasons.append(f"expected {expected_ri_points} requested RI points, got {len(group)}")
         if len(ok_group) != expected_ri_points:
             reasons.append(f"expected {expected_ri_points} successful RI points, got {len(ok_group)}")
 
-        report = sweep_lookup.get(int(target_id))
+        geometry = group[GEOMETRY_COLUMNS].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+        if not np.all(np.isfinite(geometry)) or not np.all(
+            np.isclose(geometry, geometry[:1], rtol=0.0, atol=1e-9)
+        ):
+            reasons.append("geometry changed across RI sweep")
+
+        requested_targets = [
+            "target_sensitivity_nm_per_riu",
+            "target_fom_per_riu",
+            "target_lambda_res_nm",
+            "target_analyte_ri",
+        ]
+        target_values = group[requested_targets].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+        if not np.all(np.isfinite(target_values)) or not np.all(
+            np.isclose(target_values, target_values[:1], rtol=0.0, atol=1e-9)
+        ):
+            reasons.append("target metadata changed across RI sweep")
+
+        ri_values = pd.to_numeric(ok_group["analyte_ri"], errors="coerce").to_numpy(dtype=float)
+        if not np.all(np.isfinite(ri_values)) or (
+            len(ri_values) > 1 and np.any(np.diff(np.sort(ri_values)) <= 1e-9)
+        ):
+            reasons.append("RI sweep contains duplicate or non-finite analyte values")
+
+        # Only fit a complete, single-geometry sweep. A partial fit must never
+        # promote a mixed, duplicated or failed solver run into physics evidence.
+        report = None
+        if not reasons:
+            sweep_report = fixed_geometry_sweep_report(
+                ok_group,
+                group_columns=["target_id", *GEOMETRY_COLUMNS],
+            )
+            if len(sweep_report) == 1:
+                report = sweep_report.iloc[0]
         if report is None:
             actual_sensitivity = float("nan")
             actual_fom = float("nan")
@@ -398,6 +443,8 @@ def run_closed_loop_iteration(
     """Execute one auditable inverse-design -> physics -> append closed-loop iteration."""
     if backend not in {"comsol", "synthetic"}:
         raise ValueError("backend must be 'comsol' or 'synthetic'.")
+    if runner is not None and backend == "comsol":
+        raise ValueError("Injected runners are software-only; set backend='synthetic' for test runners.")
     if passes < 2:
         raise ValueError("passes must be >= 2.")
     acceptance = thresholds or AcceptanceThresholds()
@@ -458,6 +505,8 @@ def run_closed_loop_iteration(
                 raise ValueError("COMSOL backend requires model_path and config_path.")
             raw_simulation = run_comsol_geometries(model_path, config_path, geometries)
         simulation = _attach_request_metadata(raw_simulation, request_plan)
+        simulation["source"] = backend
+        simulation["evidence_class"] = "software_only" if backend == "synthetic" else "comsol_physics"
         verification = evaluate_closed_loop_results(simulation, acceptance, expected_ri_points=ri_points)
         augmented, appended_rows = append_accepted_simulation_rows(base_dataset, simulation, verification)
 

@@ -16,6 +16,7 @@ from sprpcf.ml.dataset import (
     GEOMETRY_COLUMNS,
     METRIC_COLUMNS,
     DesignDataModule,
+    geometry_group_labels,
     read_table,
 )
 from sprpcf.ml.losses import GEOMETRY_MAX, GEOMETRY_MIN, clamp_physical_geometry
@@ -31,11 +32,15 @@ class CalibrationProfile:
     ood_distance_threshold: float
     calibration_rows: int
     training_reference_rows: int
+    calibration_groups: int
+    finite_sample_coverage_supported: bool
 
     def summary(self) -> dict[str, Any]:
         return {
             "confidence": float(self.confidence),
             "calibration_rows": int(self.calibration_rows),
+            "calibration_groups": int(self.calibration_groups),
+            "finite_sample_coverage_supported": bool(self.finite_sample_coverage_supported),
             "training_reference_rows": int(self.training_reference_rows),
             "metric_half_width": {
                 column: float(self.metric_half_width[index])
@@ -110,6 +115,21 @@ def _conformal_quantile(residuals: np.ndarray, confidence: float) -> np.ndarray:
     return np.quantile(residuals, level, axis=0, method="higher")
 
 
+def _groupwise_max_residuals(residuals: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Use each unseen geometry, not each correlated RI row, as a calibration unit."""
+    values = np.asarray(residuals, dtype=float)
+    labels = np.asarray(groups)
+    if values.ndim != 2 or labels.ndim != 1 or len(labels) != len(values) or not len(values):
+        raise ValueError("Residuals and geometry-group labels must have equal, non-empty row counts.")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("Calibration residuals must be finite.")
+    unique_groups, inverse = np.unique(labels, return_inverse=True)
+    return np.stack(
+        [values[inverse == index].max(axis=0) for index in range(len(unique_groups))],
+        axis=0,
+    )
+
+
 def _ensemble_prediction_physical(
     models: list[ForwardNetwork],
     forward_input: torch.Tensor,
@@ -180,7 +200,18 @@ def fit_calibration_profile(
         metric_scale,
     )
     residuals = np.abs(predicted - cal_metrics)
-    metric_half_width = _conformal_quantile(residuals, confidence).astype(np.float64)
+    # The held-out geometry is the exchangeability unit: five RI values from
+    # one sensor design are correlated, not five independent calibration samples.
+    grouped_residuals = _groupwise_max_residuals(
+        residuals,
+        geometry_group_labels(calibration_frame),
+    )
+    metric_half_width = _conformal_quantile(grouped_residuals, confidence).astype(np.float64)
+    calibration_groups = int(len(grouped_residuals))
+    # If the conformal rank exceeds n, the finite-sample target coverage is
+    # unattainable without an infinite interval. Retain a conservative ranking
+    # radius but explicitly mark the requested coverage as unsupported.
+    finite_sample_supported = math.ceil((calibration_groups + 1) * confidence) <= calibration_groups
 
     train_geometry = training_frame[GEOMETRY_COLUMNS].to_numpy(np.float64)
     train_condition = training_frame[CONDITION_COLUMNS].to_numpy(np.float64)
@@ -211,6 +242,8 @@ def fit_calibration_profile(
         ood_distance_threshold=threshold,
         calibration_rows=int(calibration_frame.shape[0]),
         training_reference_rows=int(train_input.shape[0]),
+        calibration_groups=calibration_groups,
+        finite_sample_coverage_supported=finite_sample_supported,
     )
 
 
