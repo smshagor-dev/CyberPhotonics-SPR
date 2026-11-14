@@ -28,6 +28,7 @@ _REQUIRED_SWEEP = (
 _REQUIRED_REQUEST = (
     "request_id", "design_seed", "method", "target_id", "target_group_id",
     "analyte_ri", *GEOMETRY_COLUMNS,
+    "fixed_geometry_ri_sweep_required", "verification_status",
     *(f"target_{name}" for name in METRIC_COLUMNS),
 )
 _ARCHIVE_NAMES = ("model", "config", "solver_log", "sweeps")
@@ -78,13 +79,12 @@ def _finite(value: Any, label: str) -> float:
 def _spectrum(value: Any, *, label: str) -> np.ndarray:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label}: missing archived spectrum")
-    parts = np.fromstring(value, sep=",")
+    try:
+        parts = np.array([float(part.strip()) for part in value.split(",")], dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label}: malformed spectrum") from exc
     if len(parts) < 16 or not np.all(np.isfinite(parts)):
         raise ValueError(f"{label}: spectrum requires at least sixteen finite points")
-    # np.fromstring can ignore trailing invalid tokens: a strict re-encoding count
-    # prevents accepting partially parsed strings as physical evidence.
-    if len(parts) != len(value.split(",")):
-        raise ValueError(f"{label}: malformed or partially parsed spectrum")
     return parts
 
 
