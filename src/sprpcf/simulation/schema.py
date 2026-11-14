@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,13 @@ class Geometry:
 
     def validate(self) -> None:
         """Reject geometry values outside the supported fabrication envelope."""
+        # NaN silently passes ordinary range comparisons. Reject it, +/-inf,
+        # and nonnumeric values before solver parameter assignment.
+        for name in ("d_over_lambda", "pitch_um", "metal_thickness_nm",
+                     "analyte_ri", "channel_radius_um"):
+            value = getattr(self, name)
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError(f"{name} must be finite and numeric.")
         if not 0.20 <= self.d_over_lambda <= 0.90:
             raise ValueError("d_over_lambda must be within [0.20, 0.90].")
         if not 0.8 <= self.pitch_um <= 4.0:
