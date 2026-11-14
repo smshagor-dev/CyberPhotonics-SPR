@@ -162,7 +162,9 @@ def _run_geometries(
                     "sample_id": sample_id,
                     "status": "ok",
                     **geometry.__dict__,
-                    **metrics.__dict__,
+                    "lambda_res_nm": metrics.lambda_res_nm,
+                    "peak_loss_db_per_cm": metrics.peak_loss_db_per_cm,
+                    "fwhm_nm": metrics.fwhm_nm,
                     "wavelength_nm": ",".join(format(float(value), ".17g") for value in wavelength_nm),
                     "loss_db_per_cm": ",".join(format(float(value), ".17g") for value in loss_db_per_cm),
                 }
