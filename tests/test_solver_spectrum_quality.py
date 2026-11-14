@@ -61,6 +61,23 @@ def test_singleton_column_spectrum_is_supported_without_changing_units():
     assert validate_optical_spectrum(v, l).fwhm_nm > 10
 
 
+def test_unit_conversion_does_not_change_original_solver_numpy_buffers():
+    # A shared MPh array must not be rescaled in place, or later samples
+    # could accidentally inherit already-converted wavelengths.
+    w_m = np.array([500e-9, 600e-9, 700e-9])
+    loss = np.array([0.5, 2.0, 0.7])
+    original_w, original_loss = w_m.copy(), loss.copy()
+    scaled_w, scaled_loss = normalize_comsol_export(
+        w_m, loss,
+        {"wavelength_scale_to_nm": 1e9, "loss_scale_to_db_per_cm": 2.0,
+         "expected_wavelength_nm": [400, 800]},
+    )
+    assert np.allclose(scaled_w, [500.0, 600.0, 700.0])
+    assert np.allclose(scaled_loss, [1.0, 4.0, 1.4])
+    assert np.array_equal(w_m, original_w)
+    assert np.array_equal(loss, original_loss)
+
+
 def test_true_multimode_columns_are_not_concatenated_into_one_fictitious_peak():
     w, loss = _lorentzian()
     config = {"expected_wavelength_nm": [500, 800]}
