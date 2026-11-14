@@ -28,7 +28,7 @@ edge = [
   "ai-edge-litert>=2.3.0,<3",
 ]
 hardware = ["pyserial>=3.5"]
-onnx = ["onnx>=1.15", "onnxscript>=0.1.0", "onnxruntime>=1.16"]
+onnx = ["onnx>=1.15", "onnxscript>=0.7.2", "onnxruntime>=1.16"]
 comsol = ["mph>=1.2"]
 xai = ["shap>=0.49.1"]
 dashboard = ["streamlit>=1.40,<2"]
