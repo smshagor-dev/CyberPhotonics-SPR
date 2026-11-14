@@ -203,6 +203,15 @@ jobs:
           if-no-files-found: error
           path: /tmp/stage7_fixture_plan/
 
+      - name: Verify COMSOL interruption and resume (software fixtures only)
+        if: matrix.python-version == '3.11'
+        run: |
+          pytest -q -W error tests/test_resumable_campaign.py
+      - name: Confirm no COMSOL execution was claimed by the fixture plan
+        if: matrix.python-version == '3.11'
+        run: |
+          python -c "import json; from pathlib import Path; p=Path('/tmp/stage7_fixture_plan'); assert (p/'campaign_plan.json').is_file(); m=json.loads((p/'campaign_plan.json').read_text()); assert m['physical_source_authenticity_verified'] is False; assert not (p/'sweeps.csv').exists()"
+
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
