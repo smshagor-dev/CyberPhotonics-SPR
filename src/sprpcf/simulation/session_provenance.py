@@ -273,3 +273,98 @@ def audit_native_session_logs(
     if {f.name for f in folder.iterdir()} != known:
         raise ValueError("Unregistered, missing or additional native solver log evidence files")
     return output
+
+
+
+def audit_sealed_session_logs(archive_dir: str | Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Recheck copied original logs, receipts and session boundaries in Stage 5.
+
+    Checksum completeness is all this can establish; native-log source
+    authenticity and physical model correctness remain independently unverified.
+    """
+    root = Path(archive_dir).resolve()
+    if manifest.get("session_log_provenance_required") is not True:
+        raise ValueError("Sealed checkpointed COMSOL archive lacks mandatory session log gate")
+    if manifest.get("session_log_evidence") != SESSION_INDEX:
+        raise ValueError("Sealed archive has unexpected session index path")
+    index_path = root / SESSION_INDEX
+    if index_path.is_symlink() or not index_path.is_file():
+        raise ValueError("Missing or symlinked sealed session log evidence index")
+    if manifest.get("session_log_evidence_sha256") != sha256_file(index_path):
+        raise ValueError("Sealed native session log index SHA-256 mismatch")
+    index = _read(index_path)
+    if (index.get("schema_version") != 1
+            or index.get("type") != "per_execution_session_log_provenance"
+            or index.get("source_authenticity_verified") is not False):
+        raise ValueError("Sealed session log index violates its evidence contract")
+    records = index.get("session_records")
+    file_map = index.get("files_sha256")
+    if (not isinstance(records, list) or not records
+            or len(records) != index.get("session_count")
+            or not isinstance(file_map, dict)):
+        raise ValueError("Sealed session log inventory is missing or empty")
+    expected_paths: set[str] = set()
+    seen: set[str] = set()
+    native_hashes: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("Malformed sealed solver session record")
+        sid = _id(record.get("session_id"))
+        if sid in seen:
+            raise ValueError("Duplicate sealed solver session IDs")
+        seen.add(sid)
+        paths = {
+            "start": "session_logs/" + sid + ".start.json",
+            "end": "session_logs/" + sid + ".end.json",
+            "log": "session_logs/" + sid + ".log",
+            "receipt": "session_logs/" + sid + ".json",
+        }
+        source_files = {}
+        for name, relative in paths.items():
+            expected_paths.add(relative)
+            file = root / relative
+            if (file.parent.is_symlink() or file.is_symlink() or not file.is_file()
+                    or file.stat().st_size == 0
+                    or sha256_file(file) != file_map.get(relative)):
+                raise ValueError("Sealed native solver session evidence hash mismatch: " + relative)
+            source_files[name] = file
+        start = _read(source_files["start"])
+        end = _read(source_files["end"])
+        receipt = _read(source_files["receipt"])
+        log_digest = sha256_file(source_files["log"])
+        native_hashes.add(log_digest)
+        if (start.get("session_id") != sid or end.get("session_id") != sid
+                or receipt.get("session_id") != sid
+                or end.get("status") != record.get("status")
+                or record.get("start_sha256") != sha256_file(source_files["start"])
+                or record.get("end_sha256") != sha256_file(source_files["end"])
+                or end.get("start_sha256") != sha256_file(source_files["start"])
+                or receipt.get("source_session_start_sha256") != record["start_sha256"]
+                or receipt.get("source_session_end_sha256") != record["end_sha256"]
+                or receipt.get("source_chunk_manifest_sha256") != record.get("chunk_manifest_sha256")
+                or receipt.get("source_chunk_ranges") != record.get("chunk_ranges")
+                or receipt.get("log_sha256") != log_digest
+                or receipt.get("log_size_bytes") != source_files["log"].stat().st_size
+                or record.get("native_log_sha256") != log_digest
+                or record.get("receipt_sha256") != sha256_file(source_files["receipt"])
+                or start.get("checkpoint_plan_sha256") != manifest.get("campaign_plan_sha256")):
+            raise ValueError("Sealed solver session ledger does not match original log or chunk ownership")
+        if end.get("status") not in ("completed", "interrupted", "manually_closed_after_crash"):
+            raise ValueError("Unclosed execution session in sealed evidence")
+    if set(file_map) != expected_paths:
+        raise ValueError("Missing or extra sealed session evidence entries")
+    session_dir = root / "session_logs"
+    if (not session_dir.is_dir() or session_dir.is_symlink()
+            or {p.name for p in session_dir.iterdir()} != {
+                Path(name).name for name in expected_paths
+            }):
+        raise ValueError("Additional or missing sealed native session files")
+    final_log = root / manifest.get("solver_log", "")
+    if not final_log.is_file() or sha256_file(final_log) not in native_hashes:
+        raise ValueError("Top-level solver log must match one bound native session log")
+    return {
+        "session_count": len(records),
+        "recorded_native_logs_complete": True,
+        "source_authenticity_verified": False,
+        "physical_correctness_verified": False,
+    }
