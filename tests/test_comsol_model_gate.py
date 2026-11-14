@@ -11,7 +11,9 @@ import pandas as pd
 import pytest
 
 from sprpcf.simulation.metrics import extract_metrics
-from sprpcf.simulation.model_gate import audit_comsol_model_readiness
+from sprpcf.simulation.model_gate import (
+    audit_comsol_model_readiness, validate_live_pilot_report,
+)
 from sprpcf.simulation.verification_campaign import prepare_comsol_campaign
 from sprpcf.utils.reproducibility import sha256_file
 
@@ -270,3 +272,64 @@ def test_strict_cli_requires_real_pilot_not_static_fixture(tmp_path):
     assert data["static_valid"]
     assert data["scientific_submission_ready"] is False
     assert data["ready_for_full_solver_run"] is False
+
+
+
+def test_fixture_pilot_cannot_authorize_real_campaign(tmp_path):
+    plan, benchmark, model, config = _inputs(tmp_path)
+    out = tmp_path / "pilot"
+    report = audit_comsol_model_readiness(
+        plan, benchmark, model, config, out, live=True, pilot=True,
+        client_factory=lambda: FakeClient(FakeModel()),
+        geometry_runner=_fake_one_geometry,
+    )
+    assert report["pilot_numerically_consistent"]
+    with pytest.raises(ValueError, match="observed_backend"):
+        validate_live_pilot_report(
+            out / "COMSOL_MODEL_PILOT_READINESS.json",
+            plan, benchmark, model, config,
+        )
+
+
+def test_modified_frozen_model_rejects_previous_pilot(tmp_path):
+    plan, benchmark, model, config = _inputs(tmp_path)
+    out = tmp_path / "pilot"
+    audit_comsol_model_readiness(
+        plan, benchmark, model, config, out, live=True, pilot=True,
+        client_factory=lambda: FakeClient(FakeModel()),
+        geometry_runner=_fake_one_geometry,
+    )
+    model.write_bytes(model.read_bytes() + b"MODIFIED")
+    with pytest.raises(ValueError, match="model_sha256"):
+        validate_live_pilot_report(
+            out / "COMSOL_MODEL_PILOT_READINESS.json",
+            plan, benchmark, model, config,
+        )
+
+
+def test_real_cli_requires_actual_pilot_report_before_batch_execution(tmp_path):
+    plan, benchmark, model, config = _inputs(tmp_path)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_comsol_verification_campaign.py"
+    out = tmp_path / "never_run"
+    args = [
+        sys.executable, str(script), "run-batched",
+        "--plan", str(plan), "--benchmark", str(benchmark),
+        "--model", str(model), "--config", str(config),
+        "--out", str(out), "--batch-size", "2",
+    ]
+    no_gate = subprocess.run(args, capture_output=True, text=True, check=False)
+    assert no_gate.returncode == 2
+    assert not out.exists()
+    fake = tmp_path / "pilot"
+    audit_comsol_model_readiness(
+        plan, benchmark, model, config, fake, live=True, pilot=True,
+        client_factory=lambda: FakeClient(FakeModel()),
+        geometry_runner=_fake_one_geometry,
+    )
+    with_gate = subprocess.run(
+        [*args, "--readiness-report", str(fake / "COMSOL_MODEL_PILOT_READINESS.json")],
+        capture_output=True, text=True, check=False,
+    )
+    assert with_gate.returncode != 0
+    assert "observed_backend" in with_gate.stderr
+    assert not out.exists()
