@@ -243,3 +243,19 @@ new session-bound log receipts, explicit crashed-session closure,
 mandatory all-session coverage before sealing, and sealed Stage 5
 reverification. The physical authenticity and independent scientific
 review blocker **remains open**; no COMSOL was run by CI.
+
+
+## Stage 10: live model and one-RI pilot readiness
+
+[COMSOL_MODEL_PILOT_GATE.md](COMSOL_MODEL_PILOT_GATE.md) documents a
+separate fail-closed structural check and optional *real* local solver
+pilot before committing time to a large RI campaign. The gate requires
+the frozen Stage 4/7 inputs, explicit unit conversion, model parameter
+names, matching study, materials, mesh and physics interface presence,
+and one physically generated, numerically consistent spectrum to enable
+**operational** solver-run readiness.
+
+CI uses a dummy model and template config to verify rejection, not to
+claim physics results. Even a successful genuine one-point pilot does
+**not** establish sensor sensitivity, FOM, mesh convergence, model
+scientific validity or journal readiness.
