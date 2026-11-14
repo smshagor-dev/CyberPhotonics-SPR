@@ -18,6 +18,7 @@ from sprpcf.simulation.metrics import extract_metrics
 from sprpcf.simulation.resumable_campaign import (
     inspect_campaign_checkpoint, run_checkpointed_campaign,
 )
+from sprpcf.simulation.session_provenance import bind_native_session_log
 from sprpcf.simulation.verification_campaign import (
     prepare_comsol_campaign, seal_comsol_campaign,
 )
@@ -292,6 +293,12 @@ def test_sealing_rechecks_all_chunks_and_final_merged_spectra(
 
     native_log = tmp_path / "fictional_comsol_test.log"
     native_log.write_text("FAKE NATIVE LOG: NO COMSOL WAS ACTUALLY RUN", encoding="utf-8")
+    inspected = inspect_campaign_checkpoint(plan, benchmark, model, config, out)
+    checkpoint = json.loads((out / "checkpoint_manifest.json").read_text(encoding="utf-8"))
+    for item in inspected["session_evidence"]:
+        bind_native_session_log(
+            out, item["session_id"], native_log, checkpoint, inspected["chunk_evidence"],
+        )
     refinement = tmp_path / "fake_refinement"
     refinement.mkdir()
     (refinement / "refinement_manifest.json").write_text("{}", encoding="utf-8")
