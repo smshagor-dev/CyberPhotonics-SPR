@@ -79,20 +79,23 @@ def _files(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
 
 
 def _fake_solver(model, config, geometries, *, kind: str = "valid"):
-    assert len(geometries) == 4
+    # The real backend cannot compute group sensitivity from duplicate RI
+    # within a single batch, so the repeat must be a separate one-row call.
+    assert len(geometries) in (1, 3)
     wavelength = np.linspace(550.0, 650.0, 101)
     result = []
     for index, geometry in enumerate(geometries):
         center = 600.0 + 400.0 * (geometry.analyte_ri - 1.33)
         if kind == "no_coupling":
             center = 600
-        elif kind == "nonmonotonic" and index == 1:
+        elif kind == "nonmonotonic" and len(geometries) == 3 and index == 1:
             center = 585
-        elif kind == "unstable_repeat" and index == 3:
+        elif kind == "unstable_repeat" and len(geometries) == 1:
             center = 603
         loss = 1 + 10.0 / (1.0 + ((wavelength - center) / 9.0) ** 2)
         metrics = extract_metrics(wavelength, loss)
-        status = "failed: synthetic eigenmode solver error" if kind == "failure" and index == 2 else "ok"
+        status = ("failed: synthetic eigenmode solver error"
+                  if kind == "failure" and len(geometries) == 3 and index == 2 else "ok")
         entry = {"sample_id": index, **geometry.__dict__, "status": status}
         if status == "ok":
             entry.update({
@@ -128,6 +131,7 @@ def test_mock_four_call_response_is_consistent_but_never_real_physics(tmp_path: 
     assert len(result["frozen_samples"]) == 4
     assert [x["frozen_sample_id"] for x in result["frozen_samples"]] == [0, 2, 4, 2]
     assert len(pd.read_csv(output / "RI_PROBE_SPECTRA.csv")) == 4
+    assert pd.read_csv(output / "RI_PROBE_SPECTRA.csv")["sample_id"].tolist() == [0, 1, 2, 3]
     assert (output / "RI_PROBE_PROTOCOL.json").is_file()
     assert result["diagnostic"]["low_to_high_resonance_shift_nm"] == pytest.approx(16.0, abs=0.1)
     with pytest.raises(ValueError, match="observed_backend"):
