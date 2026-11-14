@@ -208,6 +208,12 @@ def bind_native_session_log(
     receipt = folder / (session_id + ".json")
     if destination.exists() or receipt.exists():
         raise FileExistsError("Native solver log already bound for this session")
+    source_hash = sha256_file(source)
+    if any(
+        sha256_file(path) == source_hash for path in folder.glob("*.log")
+        if path.is_file() and not path.is_symlink()
+    ):
+        raise ValueError("Duplicate native solver log bytes reused across independent sessions")
     shutil.copyfile(source, destination)
     digest = sha256_file(destination)
     if digest != sha256_file(source):
@@ -272,6 +278,8 @@ def audit_native_session_logs(
         })
     if {f.name for f in folder.iterdir()} != known:
         raise ValueError("Unregistered, missing or additional native solver log evidence files")
+    if len({entry["native_log_sha256"] for entry in output}) != len(output):
+        raise ValueError("Duplicate native solver log bytes reused across independent sessions")
     return output
 
 
@@ -351,6 +359,8 @@ def audit_sealed_session_logs(archive_dir: str | Path, manifest: dict[str, Any])
             raise ValueError("Sealed solver session ledger does not match original log or chunk ownership")
         if end.get("status") not in ("completed", "interrupted", "manually_closed_after_crash"):
             raise ValueError("Unclosed execution session in sealed evidence")
+    if len(native_hashes) != len(records):
+        raise ValueError("Sealed campaign reused the same native log bytes for multiple sessions")
     if set(file_map) != expected_paths:
         raise ValueError("Missing or extra sealed session evidence entries")
     session_dir = root / "session_logs"
