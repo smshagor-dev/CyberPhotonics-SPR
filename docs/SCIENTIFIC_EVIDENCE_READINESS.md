@@ -234,3 +234,12 @@ The Stage 7 seal path now checks checkpointed source archives against the
 individual batch journal before proceeding to Stage 5. This does **not**
 run COMSOL in GitHub CI, certify electromagnetic correctness, or solve
 the absence of genuine model, native log and independent refinement inputs.
+
+
+## Stage 9: native solver log per COMSOL execution session
+
+[COMSOL_SESSION_PROVENANCE.md](COMSOL_SESSION_PROVENANCE.md) describes
+new session-bound log receipts, explicit crashed-session closure,
+mandatory all-session coverage before sealing, and sealed Stage 5
+reverification. The physical authenticity and independent scientific
+review blocker **remains open**; no COMSOL was run by CI.
