@@ -23,6 +23,9 @@ import pandas as pd
 from sprpcf.simulation.comsol_sweep import run_comsol_geometries
 from sprpcf.simulation.metrics import extract_metrics
 from sprpcf.simulation.schema import Geometry
+from sprpcf.simulation.session_provenance import (
+    finish_solver_session, inspect_session_ledger, start_solver_session,
+)
 from sprpcf.simulation.verification_campaign import (
     SWEEP_FIELDS, _check_frozen_plan, _clean_output, _finite, _now, _read_json, _require_file,
 )
@@ -231,8 +234,11 @@ def _read_committed_chunks(
         if (manifest.get("successful") != sum(r["status"] == "ok" for r in normalized)
                 or manifest.get("failed") != sum(r["status"] != "ok" for r in normalized)):
             raise ValueError("Checkpoint success/failure ledger mismatch: " + base)
+        session_id = manifest.get("session_id")
+        if not isinstance(session_id, str) or len(session_id) != 32:
+            raise ValueError("Committed COMSOL batch lacks its session provenance")
         metadata.append({
-            "start": start, "stop": stop,
+            "start": start, "stop": stop, "session_id": session_id,
             "csv_sha256": manifest["csv_sha256"],
             "manifest_sha256": sha256_file(manifest_path),
         })
@@ -283,10 +289,12 @@ def inspect_campaign_checkpoint(
     writer.writeheader()
     writer.writerows({key: row[key] for key in SWEEP_FIELDS} for row in completed)
     merged_sha256 = hashlib.sha256(canonical.getvalue().encode("utf-8")).hexdigest()
+    sessions = inspect_session_ledger(output, expected, metadata, closed_only=False)
     return {
         "contract_valid": True,
         "checkpoint_manifest_sha256": sha256_file(output / CHECKPOINT_NAME),
         "chunk_evidence": metadata,
+        "session_evidence": sessions,
         "canonical_merged_sweeps_sha256": merged_sha256,
         "committed_solver_evaluations": len(completed),
         "remaining_solver_evaluations": len(planned) - len(completed),
@@ -337,12 +345,16 @@ def run_checkpointed_campaign(
         fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError as exc:
         raise RuntimeError("COMSOL campaign already has an active writer") from exc
+    active_session_id: str | None = None
+    session_closed = False
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(json.dumps({"created_at_utc": _now(), "pid": os.getpid()}))
         completed, metadata = _read_committed_chunks(output, planned, contract)
         _write_progress(output, contract, completed, metadata)
         executor = run_comsol_geometries if real_backend else runner
+        if len(completed) < len(planned):
+            active_session_id = start_solver_session(output, contract, len(completed))
         while len(completed) < len(planned):
             start = len(completed)
             stop = min(start + batch_size, len(planned))
@@ -362,6 +374,7 @@ def run_checkpointed_campaign(
                 "start": start, "stop": stop,
                 "plan_sha256": contract["plan_sha256"],
                 "backend_kind": contract["backend_kind"],
+                "session_id": active_session_id,
                 "csv_sha256": sha256_file(path),
                 "successful": sum(item["status"] == "ok" for item in normal),
                 "failed": sum(item["status"] != "ok" for item in normal),
@@ -371,11 +384,16 @@ def run_checkpointed_campaign(
             _atomic_json(manifest_path, chunk_record)
             metadata.append({
                 "start": start, "stop": stop,
+                "session_id": active_session_id,
                 "csv_sha256": chunk_record["csv_sha256"],
                 "manifest_sha256": sha256_file(manifest_path),
             })
             completed.extend(normal)
             _write_progress(output, contract, completed, metadata)
+        if active_session_id is not None:
+            finish_solver_session(output, active_session_id, "completed")
+            session_closed = True
+        sessions = inspect_session_ledger(output, contract, metadata)
         # Exactly the Stage 7 output contract; usable by the original seal CLI.
         sweeps = output / "sweeps.csv"
         part = sweeps.with_name(sweeps.name + ".partial")
@@ -401,6 +419,8 @@ def run_checkpointed_campaign(
             "sweeps_sha256": sha256_file(sweeps),
             "checkpoint_manifest_sha256": sha256_file(output / CHECKPOINT_NAME),
             "chunk_evidence": metadata,
+            "session_log_provenance_required": True,
+            "session_evidence": sessions,
             "scheduled_solver_evaluations": len(completed),
             "successful_solver_evaluations": sum(row["status"] == "ok" for row in completed),
             "failed_solver_evaluations": sum(row["status"] != "ok" for row in completed),
@@ -414,6 +434,10 @@ def run_checkpointed_campaign(
         }
         _atomic_json(output / "execution_manifest.json", result)
         return result
+    except BaseException:
+        if active_session_id is not None and not session_closed:
+            finish_solver_session(output, active_session_id, "interrupted")
+        raise
     finally:
         # Only an actual writer that acquired the lock removes it. Interrupted
         # hard-killed processes require explicit --recover-stale-lock.
