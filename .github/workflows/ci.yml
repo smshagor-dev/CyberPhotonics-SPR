@@ -207,6 +207,10 @@ jobs:
         if: matrix.python-version == '3.11'
         run: |
           pytest -q -W error tests/test_resumable_campaign.py
+      - name: Verify multi-session native COMSOL log evidence (software fixtures only)
+        if: matrix.python-version == '3.11'
+        run: |
+          pytest -q -W error tests/test_resumable_campaign.py -k "session or log or sealing"
       - name: Confirm no COMSOL execution was claimed by the fixture plan
         if: matrix.python-version == '3.11'
         run: |
