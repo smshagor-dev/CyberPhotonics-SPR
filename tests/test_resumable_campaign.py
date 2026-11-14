@@ -273,3 +273,72 @@ def test_readonly_inspect_cli_does_not_try_to_run_comsol(tmp_path):
     assert result["committed_solver_evaluations"] == 30
     assert result["remaining_solver_evaluations"] == 0
     assert result["scientific_submission_ready"] is False
+
+
+def test_sealing_rechecks_all_chunks_and_final_merged_spectra(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+):
+    """Mocked 'real' path is scoped to this test, NOT an authentic COMSOL run."""
+    import sprpcf.simulation.resumable_campaign as resumable
+    import sprpcf.simulation.verification_campaign as legacy
+
+    inputs = _campaign(tmp_path)
+    plan, benchmark, model, config = inputs
+    monkeypatch.setattr(resumable, "run_comsol_geometries", _fake_solver)
+    out = tmp_path / "checkpointed"
+    report = _run(inputs, out, batch_size=7)
+    assert report["real_comsol_backend_invoked"] is True  # backend entrypoint was patched in test
+    assert report["source_authenticity_verified"] is False
+
+    native_log = tmp_path / "fictional_comsol_test.log"
+    native_log.write_text("FAKE NATIVE LOG: NO COMSOL WAS ACTUALLY RUN", encoding="utf-8")
+    refinement = tmp_path / "fake_refinement"
+    refinement.mkdir()
+    (refinement / "refinement_manifest.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        legacy, "audit_refinement_archive",
+        lambda root: {
+            "convergence_consistent": True,
+            "file_sha256": {"model": sha256_file(model)},
+        },
+    )
+    sealed = seal_comsol_campaign(
+        plan, out, benchmark, model, config, native_log, refinement,
+        tmp_path / "test_seal",
+    )
+    assert sealed["physical_correctness_verified"] is False
+    assert sealed["source_authenticity_verified"] is False
+    first_chunk = out / "chunks" / "batch_00000000_00000007.csv"
+    first_chunk.write_text(first_chunk.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Checkpoint SHA-256 mismatch"):
+        seal_comsol_campaign(
+            plan, out, benchmark, model, config, native_log, refinement,
+            tmp_path / "refused_seal",
+        )
+
+
+def test_final_sweeps_rehash_cannot_bypass_checkpointed_seal(tmp_path, monkeypatch):
+    import sprpcf.simulation.resumable_campaign as resumable
+    import sprpcf.simulation.verification_campaign as legacy
+
+    plan, benchmark, model, config = _campaign(tmp_path)
+    monkeypatch.setattr(resumable, "run_comsol_geometries", _fake_solver)
+    out = tmp_path / "checkpointed"
+    run_checkpointed_campaign(plan, benchmark, model, config, out, batch_size=8)
+    # Change only the combined CSV, then update its digest in the top-level
+    # execution manifest. The immutable batch journal must still reject it.
+    sweeps = out / "sweeps.csv"
+    data = pd.read_csv(sweeps)
+    data.loc[0, "pitch_um"] += 0.3
+    data.to_csv(sweeps, index=False)
+    manifest = out / "execution_manifest.json"
+    state = json.loads(manifest.read_text(encoding="utf-8"))
+    state["sweeps_sha256"] = sha256_file(sweeps)
+    manifest.write_text(json.dumps(state), encoding="utf-8")
+    native_log = tmp_path / "mock.log"
+    native_log.write_text("NOT A REAL COMSOL LOG", encoding="utf-8")
+    with pytest.raises(ValueError, match="Checkpointed COMSOL run chunks disagree"):
+        seal_comsol_campaign(
+            plan, out, benchmark, model, config, native_log,
+            tmp_path / "missing_refinement", tmp_path / "never_sealed",
+        )
