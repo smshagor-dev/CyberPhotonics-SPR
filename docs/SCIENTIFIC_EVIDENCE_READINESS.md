@@ -216,3 +216,21 @@ The executable path and unit-tested failure handling **do not** mean
 COMSOL has been run on the repository's test infrastructure: the real
 model, license, genuine native solver logs and physical review have not
 been supplied. The publication evidence gate remains closed.
+
+
+## Stage 8: resumable real COMSOL sweep campaign
+
+A checkpointed solver runner can now commit batches with SHA-256 integrity,
+validate saved spectra and design identities before resuming, and reject
+altered or missing batch evidence. See
+[RESUMABLE_COMSOL_CAMPAIGN.md](RESUMABLE_COMSOL_CAMPAIGN.md).
+
+```bash
+python scripts/run_comsol_verification_campaign.py run-batched --help
+python scripts/run_comsol_verification_campaign.py inspect --help
+```
+
+The Stage 7 seal path now checks checkpointed source archives against the
+individual batch journal before proceeding to Stage 5. This does **not**
+run COMSOL in GitHub CI, certify electromagnetic correctness, or solve
+the absence of genuine model, native log and independent refinement inputs.
