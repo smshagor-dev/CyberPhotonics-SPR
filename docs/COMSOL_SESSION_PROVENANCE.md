@@ -9,7 +9,7 @@ Stage 8 can resume interrupted FEM campaigns. Stage 9 binds **each separate invo
 Use the Stage 7 plan and Stage 8 batch runner:
 
 ```bash
-python scripts/run_comsol_verification_campaign.py run-batched --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --batch-size 8 --out outputs/research/stage8_run
+python scripts/run_comsol_verification_campaign.py run-batched --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --readiness-report outputs/research/stage10_pilot/COMSOL_MODEL_PILOT_READINESS.json --batch-size 8 --out outputs/research/stage8_run
 python scripts/run_comsol_verification_campaign.py inspect --plan outputs/research/stage7_plan --benchmark outputs/research/stage4 --model /real/pcf_spr.mph --config /real/config.yaml --out outputs/research/stage8_run
 ```
 
