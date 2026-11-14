@@ -82,12 +82,15 @@ def _optional_grid_derivatives(frame: pd.DataFrame) -> pd.DataFrame:
     frame["sensitivity_nm_per_riu"] = float("nan")
     frame["fom_per_riu"] = float("nan")
     frame["sensitivity_diagnostic_status"] = "solver_failed"
-    success = frame["status"].eq("ok")
-    if not success.any():
-        return frame
-    for _, group in frame.loc[success].groupby(
+    for _, group in frame.groupby(
         SENSITIVITY_GROUP_COLUMNS, sort=False, dropna=False
     ):
+        if not group["status"].eq("ok").all():
+            indices = group.index[group["status"].eq("ok")]
+            frame.loc[indices, "sensitivity_diagnostic_status"] = (
+                "incomplete_grid_solver_failure"
+            )
+            continue
         if len(group) < 2:
             frame.loc[group.index, "sensitivity_diagnostic_status"] = (
                 "insufficient_unique_ri_points"
