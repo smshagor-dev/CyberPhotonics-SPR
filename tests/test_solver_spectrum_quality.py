@@ -44,6 +44,11 @@ def test_geometry_rejects_nonfinite_comsol_parameters(parameter, bad):
         Geometry(**params).validate()
 
 
+def test_valid_numpy_float32_geometry_still_works():
+    params = {key: np.float32(value) for key, value in _geometry().__dict__.items()}
+    Geometry(**params).validate()
+
+
 def test_singleton_column_spectrum_is_supported_without_changing_units():
     w, loss = _lorentzian()
     v, l = normalize_comsol_export(
