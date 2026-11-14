@@ -327,7 +327,8 @@ def test_real_cli_requires_actual_pilot_report_before_batch_execution(tmp_path):
         geometry_runner=_fake_one_geometry,
     )
     with_gate = subprocess.run(
-        [*args, "--readiness-report", str(fake / "COMSOL_MODEL_PILOT_READINESS.json")],
+        [*args, "--readiness-report", str(fake / "COMSOL_MODEL_PILOT_READINESS.json"),
+         "--ri-response-report", str(fake / "missing_ri_response.json")],
         capture_output=True, text=True, check=False,
     )
     assert with_gate.returncode != 0
