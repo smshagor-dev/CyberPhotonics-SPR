@@ -297,3 +297,13 @@ grid may produce clearly labeled *unqualified diagnostic* derivatives;
 duplicate or failed RI samples block them. See
 [COMSOL_REQUEST_SAFE_DERIVATIVES.md](COMSOL_REQUEST_SAFE_DERIVATIVES.md).
 This change does not fill the missing authenticated COMSOL evidence.
+
+
+## Stage 14: COMSOL checkpoint model lifecycle resource management
+
+[REUSABLE_COMSOL_MODEL_SESSION.md](REUSABLE_COMSOL_MODEL_SESSION.md)
+adds an explicitly opt-in reuse of a single MPh-loaded model across
+checkpoint batches, with owned-model removal on completion/interruption.
+This is a performance/resource-lifetime engineering improvement only.
+It does not establish physical solver results, equivalence of numerical
+initialization, mesh/material/PML validity or scientific submission readiness.

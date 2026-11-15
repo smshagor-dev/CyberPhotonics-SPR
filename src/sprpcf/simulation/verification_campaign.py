@@ -404,11 +404,19 @@ def seal_comsol_campaign(
         from sprpcf.simulation.session_provenance import audit_native_session_logs
         from sprpcf.simulation.resumable_campaign import _checkpoint_contract
 
+        checkpoint_contract = _read_json(_require_file(run_root / "checkpoint_manifest.json"))
         contract = _checkpoint_contract(
             Path(plan_dir), plan,
-            _read_json(_require_file(run_root / "checkpoint_manifest.json"))["batch_size"],
+            checkpoint_contract["batch_size"],
             real_backend=True,
+            reuse_loaded_model=(
+                checkpoint_contract.get("model_session_mode") == "reused_loaded_model"
+            ),
         )
+        if run.get("model_session_mode", "per_batch_load") != contract.get(
+            "model_session_mode", "per_batch_load"
+        ):
+            raise ValueError("COMSOL model lifecycle differs from immutable checkpoint")
         if run.get("session_log_provenance_required") is not True:
             raise ValueError("Checkpointed COMSOL campaign lacks required session-log provenance")
         session_logs = audit_native_session_logs(run_root, contract, checked["chunk_evidence"])
@@ -481,6 +489,7 @@ def seal_comsol_campaign(
         manifest["session_log_evidence_sha256"] = sha256_file(index)
         manifest["session_log_provenance_required"] = True
         manifest["execution_mode"] = "checkpointed_batches"
+        manifest["model_session_mode"] = run.get("model_session_mode", "per_batch_load")
         manifest["solver_log_type"] = "one_native_log_from_complete_bound_session_ledger"
     for role, (source, filename) in files.items():
         destination = out / filename

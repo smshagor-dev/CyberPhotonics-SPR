@@ -71,3 +71,16 @@ Both `run` and `run-batched` now require **two** source-bound reports:
 fixtures and cannot pass them off as physical simulations. A diagnostic
 pass does not establish full-sweep sensitivity, mesh convergence, solver
 authenticity or journal-ready numerical evidence.
+
+
+## Stage 14: model reuse and solver invocation boundaries
+
+A checkpoint campaign can opt into
+[`--reuse-loaded-model`](REUSABLE_COMSOL_MODEL_SESSION.md). That
+means one MPh-loaded COMSOL model per execution invocation, **not**
+one model for the entire multi-session/resumed campaign. Each
+interrupted/resumed execution still gets a unique session ID,
+session-specific committed batch ownership and its own externally
+retained genuine COMSOL-native solver log before sealing. The immutable
+checkpoint contract binds model lifecycle mode; the default/legacy
+per-batch behavior remains unchanged.

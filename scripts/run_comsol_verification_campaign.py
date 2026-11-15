@@ -64,6 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
     batched.add_argument("--ri-response-report", type=Path, required=True,
                          help="Source-bound PASS from real low/center/high + center-repeat RI diagnostic")
     batched.add_argument("--batch-size", type=int, default=8)
+    batched.add_argument(
+        "--reuse-loaded-model", action="store_true",
+        help="Opt in to load the genuine .mph only once per execution session; use the same flag on resume",
+    )
     batched.add_argument("--resume", action="store_true", help="Verify existing committed batches and resume remaining samples")
     batched.add_argument("--recover-stale-lock", action="store_true",
                          help="ONLY when no other worker is alive; explicitly replace abandoned session lock")
@@ -129,6 +133,7 @@ def main() -> None:
             args.plan, args.benchmark, args.model, args.config, args.out,
             batch_size=args.batch_size, resume=args.resume,
             recover_stale_lock=args.recover_stale_lock,
+            reuse_loaded_model=args.reuse_loaded_model,
         )
     elif args.command == "inspect":
         result = inspect_campaign_checkpoint(
