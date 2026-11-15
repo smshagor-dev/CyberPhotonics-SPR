@@ -6,6 +6,9 @@ on:
       - 'src/sprpcf/simulation/open_vector_grid.py'
       - 'scripts/probe_femwell_ri_wavelength.py'
       - 'tests/test_open_vector_grid.py'
+      - 'tests/test_measured_au_fem_grid.py'
+      - 'scripts/verify_measured_au_fem_grid.py'
+      - 'src/sprpcf/simulation/materials_reference.py'
       - '.github/workflows/pcf-ri-wavelength-grid.yml'
   workflow_dispatch:
 
@@ -16,7 +19,7 @@ jobs:
   same-mesh-vector-grid:
     name: Full-vector wavelength x RI solver pilot (unqualified)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,21 +34,22 @@ jobs:
       - name: Unit tests (no physics fixtures qualified)
         env:
           PYTHONPATH: src
-        run: python -m pytest -q -W error tests/test_open_vector_grid.py
-      - name: Execute genuine 3-by-3 wavelength and analyte RI FEM grid
+        run: python -m pytest -q -W error tests/test_open_vector_grid.py tests/test_measured_au_fem_grid.py tests/test_materials_reference.py tests/test_native_vector_grid_audit.py
+      - name: Execute genuine 3-by-3 wavelength and analyte RI FEM grid with measured-reference Au
         run: |
           python scripts/probe_femwell_ri_wavelength.py \
-            --out /tmp/exploratory-vector-grid \
+            --out /tmp/measured-au-exploratory-vector-grid \
             --wavelengths-um 0.75,0.8,0.85 \
             --analyte-ris 1.35,1.36,1.37 \
             --num-modes 2 --gold-mesh-resolution-um 0.025 \
+            --gold-source johnson_christy_1972 \
             --strict
       - name: Check actual runs, vector-field archive and nonpublication flags
         run: |
           python - <<'PY'
           import csv, json
           from pathlib import Path
-          p=Path('/tmp/exploratory-vector-grid')
+          p=Path('/tmp/measured-au-exploratory-vector-grid')
           r=json.loads((p/'GRID_READINESS.json').read_text())
           assert r['completed'] and r['solver_calls_completed'] == 9
           assert r['raw_eigenmode_rows'] == 18
@@ -58,10 +62,12 @@ jobs:
           assert r['resonance_fwhm_verified'] is False
           assert r['physical_sensor_sensitivity_verified'] is False
           PY
+      - name: Independently verify native grid hashes, source Au epsilon and E/H NPZ
+        run: python scripts/verify_measured_au_fem_grid.py /tmp/measured-au-exploratory-vector-grid
       - name: Upload all real solver-native 2D full-vector experimental evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: exploratory-2d-vector-wavelength-ri-grid
+          name: measured-reference-au-exploratory-2d-vector-ri-grid
           if-no-files-found: warn
-          path: /tmp/exploratory-vector-grid/
+          path: /tmp/measured-au-exploratory-vector-grid/
