@@ -13,6 +13,7 @@ import json
 import math
 import os
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from sprpcf.simulation.comsol_sweep import run_comsol_geometries
+from sprpcf.simulation.comsol_sweep import ComsolModelSession, run_comsol_geometries
 from sprpcf.simulation.spectrum_quality import validate_optical_spectrum
 from sprpcf.simulation.schema import Geometry
 from sprpcf.simulation.session_provenance import (
@@ -60,8 +61,11 @@ def _atomic_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def _checkpoint_contract(
     plan_dir: Path, plan: dict[str, Any], batch_size: int, real_backend: bool,
+    *, reuse_loaded_model: bool = False,
 ) -> dict[str, Any]:
-    return {
+    if reuse_loaded_model and not real_backend:
+        raise ValueError("Reusable COMSOL model mode requires the genuine mph backend")
+    contract = {
         "schema_version": 1,
         "kind": "comsol_checkpointed_campaign",
         "plan_sha256": sha256_file(_require_file(plan_dir / "campaign_plan.json")),
@@ -75,6 +79,11 @@ def _checkpoint_contract(
         "physical_correctness_verified": False,
         "scientific_submission_ready": False,
     }
+    # Leave existing per-batch checkpoint manifests byte-compatible, so old
+    # interrupted research campaigns can still resume without migration.
+    if reuse_loaded_model:
+        contract["model_session_mode"] = "reused_loaded_model"
+    return contract
 
 
 def _batch_name(start: int, stop: int) -> str:
@@ -279,8 +288,11 @@ def inspect_campaign_checkpoint(
     contract = _read_json(_require_file(output / CHECKPOINT_NAME))
     if not isinstance(contract.get("batch_size"), int) or contract["batch_size"] < 1:
         raise ValueError("Checkpoint contains invalid batch size")
-    expected = _checkpoint_contract(Path(plan_dir), plan, contract["batch_size"],
-                                    contract.get("backend_kind") == "comsol_mph")
+    expected = _checkpoint_contract(
+        Path(plan_dir), plan, contract["batch_size"],
+        contract.get("backend_kind") == "comsol_mph",
+        reuse_loaded_model=contract.get("model_session_mode") == "reused_loaded_model",
+    )
     if contract != expected:
         raise ValueError("Checkpoint contract differs from frozen campaign inputs")
     completed, metadata = _read_committed_chunks(output, planned, expected)
@@ -301,6 +313,7 @@ def inspect_campaign_checkpoint(
         "failed_solver_evaluations": sum(item["status"] != "ok" for item in completed),
         "committed_batches": len(metadata),
         "backend_kind": expected["backend_kind"],
+        "model_session_mode": expected.get("model_session_mode", "per_batch_load"),
         "source_authenticity_verified": False,
         "scientific_submission_ready": False,
     }
@@ -311,6 +324,7 @@ def run_checkpointed_campaign(
     config_path: str | Path, output_dir: str | Path, *,
     batch_size: int = 8, resume: bool = False,
     recover_stale_lock: bool = False,
+    reuse_loaded_model: bool = False,
     runner: Callable[[Path, Path, Sequence[Geometry]], pd.DataFrame] | None = None,
 ) -> dict[str, Any]:
     """Persist each validated COMSOL batch; refuse mismatched resume provenance."""
@@ -321,7 +335,10 @@ def run_checkpointed_campaign(
     config = _require_file(config_path)
     plan, planned = _check_frozen_plan(plan_dir, benchmark_dir, model, config)
     real_backend = runner is None
-    contract = _checkpoint_contract(plan_dir, plan, batch_size, real_backend)
+    contract = _checkpoint_contract(
+        plan_dir, plan, batch_size, real_backend,
+        reuse_loaded_model=reuse_loaded_model,
+    )
     output = Path(output_dir).resolve()
     if resume:
         if not output.is_dir():
@@ -355,41 +372,50 @@ def run_checkpointed_campaign(
         executor = run_comsol_geometries if real_backend else runner
         if len(completed) < len(planned):
             active_session_id = start_solver_session(output, contract, len(completed))
-        while len(completed) < len(planned):
-            start = len(completed)
-            stop = min(start + batch_size, len(planned))
-            batch = planned.iloc[start:stop]
-            sampled = [_geometry(row) for _, row in batch.iterrows()]
-            # A missing COMSOL runtime/license raises here; no fake continuation.
-            raw = executor(model, config, sampled)
-            normal = _normalize_chunk_rows(
-                raw, batch, start=start, backend=contract["backend_kind"], local_ids=True,
-            )
-            name = _batch_name(start, stop)
-            path = output / "chunks" / (name + ".csv")
-            manifest_path = output / "chunks" / (name + ".json")
-            _atomic_csv(path, normal)
-            chunk_record = {
-                "schema_version": 1, "kind": "committed_comsol_batch",
-                "start": start, "stop": stop,
-                "plan_sha256": contract["plan_sha256"],
-                "backend_kind": contract["backend_kind"],
-                "session_id": active_session_id,
-                "csv_sha256": sha256_file(path),
-                "successful": sum(item["status"] == "ok" for item in normal),
-                "failed": sum(item["status"] != "ok" for item in normal),
-                "committed_at_utc": _now(),
-                "source_authenticity_verified": False,
-            }
-            _atomic_json(manifest_path, chunk_record)
-            metadata.append({
-                "start": start, "stop": stop,
-                "session_id": active_session_id,
-                "csv_sha256": chunk_record["csv_sha256"],
-                "manifest_sha256": sha256_file(manifest_path),
-            })
-            completed.extend(normal)
-            _write_progress(output, contract, completed, metadata)
+        # Opt-in mode loads the immutable .mph once per execution session.
+        # Each batch is still committed atomically; resume opens a NEW session.
+        context = (
+            ComsolModelSession(model, config)
+            if real_backend and reuse_loaded_model and len(completed) < len(planned)
+            else nullcontext()
+        )
+        with context as loaded:
+            while len(completed) < len(planned):
+                start = len(completed)
+                stop = min(start + batch_size, len(planned))
+                batch = planned.iloc[start:stop]
+                sampled = [_geometry(row) for _, row in batch.iterrows()]
+                # A missing COMSOL runtime/license raises here; no fake continuation.
+                raw = (loaded.run(model, config, sampled) if loaded is not None
+                       else executor(model, config, sampled))
+                normal = _normalize_chunk_rows(
+                    raw, batch, start=start, backend=contract["backend_kind"], local_ids=True,
+                )
+                name = _batch_name(start, stop)
+                path = output / "chunks" / (name + ".csv")
+                manifest_path = output / "chunks" / (name + ".json")
+                _atomic_csv(path, normal)
+                chunk_record = {
+                    "schema_version": 1, "kind": "committed_comsol_batch",
+                    "start": start, "stop": stop,
+                    "plan_sha256": contract["plan_sha256"],
+                    "backend_kind": contract["backend_kind"],
+                    "session_id": active_session_id,
+                    "csv_sha256": sha256_file(path),
+                    "successful": sum(item["status"] == "ok" for item in normal),
+                    "failed": sum(item["status"] != "ok" for item in normal),
+                    "committed_at_utc": _now(),
+                    "source_authenticity_verified": False,
+                }
+                _atomic_json(manifest_path, chunk_record)
+                metadata.append({
+                    "start": start, "stop": stop,
+                    "session_id": active_session_id,
+                    "csv_sha256": chunk_record["csv_sha256"],
+                    "manifest_sha256": sha256_file(manifest_path),
+                })
+                completed.extend(normal)
+                _write_progress(output, contract, completed, metadata)
         if active_session_id is not None:
             finish_solver_session(output, active_session_id, "completed")
             session_closed = True
@@ -407,6 +433,7 @@ def run_checkpointed_campaign(
         result = {
             "schema_version": 1, "kind": "comsol_campaign_execution",
             "execution_mode": "checkpointed_batches",
+            "model_session_mode": contract.get("model_session_mode", "per_batch_load"),
             "completed_at_utc": _now(),
             "real_comsol_backend_invoked": real_backend,
             "source_authenticity_verified": False,
