@@ -1,0 +1,67 @@
+name: Experimental PCF RI-wavelength full-vector grid
+
+on:
+  pull_request:
+    paths:
+      - 'src/sprpcf/validation/open_vector_grid.py'
+      - 'scripts/probe_femwell_ri_wavelength.py'
+      - 'tests/test_open_vector_grid.py'
+      - '.github/workflows/pcf-ri-wavelength-grid.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  same-mesh-vector-grid:
+    name: Full-vector wavelength x RI solver pilot (unqualified)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Gmsh libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libglu1-mesa libgl1
+      - name: Install open FEM solver and tests
+        run: python -m pip install "femwell>=0.1,<0.2" "shapely>=2" "meshio>=5.3" "pytest>=7.4"
+      - name: Unit tests (no physics fixtures qualified)
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q -W error tests/test_open_vector_grid.py
+      - name: Execute genuine 3-by-3 wavelength and analyte RI FEM grid
+        run: |
+          python scripts/probe_femwell_ri_wavelength.py \
+            --out /tmp/exploratory-vector-grid \
+            --wavelengths-um 0.75,0.8,0.85 \
+            --analyte-ris 1.35,1.36,1.37 \
+            --num-modes 2 --gold-mesh-resolution-um 0.025 \
+            --strict
+      - name: Check actual runs, vector-field archive and nonpublication flags
+        run: |
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          p=Path('/tmp/exploratory-vector-grid')
+          r=json.loads((p/'GRID_READINESS.json').read_text())
+          assert r['completed'] and r['solver_calls_completed'] == 9
+          assert r['raw_eigenmode_rows'] == 18
+          assert r['vector_overlap_matched_edges'] == 24
+          assert len(list(csv.DictReader((p/'raw_eigenmode_grid.csv').open()))) == 18
+          assert all((p/f'raw_vector_eh_ri{i}_wl{j}.npz').exists() for i in range(3) for j in range(3))
+          assert r['scientific_submission_ready'] is False
+          assert r['mode_tracking_physically_verified'] is False
+          assert r['pml_validated'] is False
+          assert r['resonance_fwhm_verified'] is False
+          assert r['physical_sensor_sensitivity_verified'] is False
+          PY
+      - name: Upload all real solver-native 2D full-vector experimental evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exploratory-2d-vector-wavelength-ri-grid
+          if-no-files-found: warn
+          path: /tmp/exploratory-vector-grid/
