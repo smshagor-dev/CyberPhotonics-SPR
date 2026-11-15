@@ -251,6 +251,10 @@ jobs:
         if: matrix.python-version == '3.11'
         run: |
           pytest -q -W error tests/test_reusable_comsol_model.py
+      - name: "Stage 15 - COMSOL reload-versus-reuse numerical consistency (synthetic fixtures)"
+        if: matrix.python-version == '3.11'
+        run: |
+          pytest -q -W error tests/test_comsol_mode_equivalence.py
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7
