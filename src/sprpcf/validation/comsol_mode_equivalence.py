@@ -221,8 +221,11 @@ def compare_comsol_mode_results(
             or len(reload) != plan["planned_solver_evaluations"]
             or len(reload) == 0):
         raise ValueError("Reload/reuse runs have unequal frozen sample coverage")
+    # Canonical Stage7/8 sweeps.csv deliberately omits sample_id. Its
+    # absolute ID is the zero-based frozen row position, already rechecked
+    # against checkpoint chunks by inspect_campaign_checkpoint above.
     fields = (
-        "sample_id", "request_id", "analyte_ri", "pitch_um",
+        "request_id", "analyte_ri", "pitch_um",
         "d_over_lambda", "metal_thickness_nm", "channel_radius_um",
         "source", "evidence_class",
     )
@@ -237,7 +240,7 @@ def compare_comsol_mode_results(
         base = reload.iloc[idx]
         variant = reused.iloc[idx]
         item: dict[str, Any] = {
-            "sample_id": int(base["sample_id"]),
+            "sample_id": idx,
             "request_id": str(base["request_id"]),
             "analyte_ri": float(base["analyte_ri"]),
             "reload_status": str(base["status"]),
