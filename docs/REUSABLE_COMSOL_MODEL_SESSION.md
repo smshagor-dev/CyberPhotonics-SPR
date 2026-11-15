@@ -37,3 +37,16 @@ pytest -q -W error tests/test_reusable_comsol_model.py tests/test_resumable_camp
 The tests inject fake MPh clients and synthetic Lorentzian spectra. They check one load for multiple batches, `client.remove` ownership cleanup, per-batch checkpoint evidence, interruption and resumed loading without rerunning finished samples, mode mismatch rejection, refusal to treat injected runners as the real backend and legacy checkpoint compatibility.
 
 **CI cannot benchmark actual COMSOL startup time, licensing behavior, memory use, physical model equivalence or optical correctness.** No genuine FEM or device results were generated. Journal-readiness blocker [#42](https://github.com/smshagor-dev/CyberPhotonics-SPR/issues/42) remains open.
+
+## Stage 15: independently audit reload versus reuse results
+
+Do not infer that fewer MPh model loads means the same electromagnetic
+solution. Use the separate
+[Stage 15 source-bound numerical comparison](COMSOL_MODEL_MODE_EQUIVALENCE.md)
+on **two complete genuine COMSOL campaigns** using the same immutable
+plan and model, one with legacy per-batch reloading and one with
+`--reuse-loaded-model`. The audit checks every original RI sample,
+raw loss/wavelength array, resonance and FWHM under an explicit frozen
+tolerance protocol, while reporting native session log coverage.
+Software fixtures and hashes cannot prove real physics or paper
+readiness.
