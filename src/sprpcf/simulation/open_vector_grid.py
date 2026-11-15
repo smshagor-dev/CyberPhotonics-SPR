@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from sprpcf.simulation.materials_reference import au_johnson_christy_permittivity, au_reference_manifest
+
 from sprpcf.simulation.pcf_femwell_probe import (
     ExploratoryPcfTopology, fitted_gold_permittivity, silica_index_sellmeier,
 )
@@ -76,9 +78,15 @@ def run_vector_grid(
     topology: ExploratoryPcfTopology = ExploratoryPcfTopology(),
     gold_mesh_resolution_um: float = 0.025,
     num_modes: int = 2,
+    gold_source: str = "fitted",
 ) -> dict[str, Any]:
     """Real independent eigenvalue solves on ONE spatial mesh, with E/H archives."""
     preflight_grid(wavelengths_um, analyte_ris, num_modes)
+    if gold_source not in ("fitted", "johnson_christy_1972"):
+        raise ValueError("gold_source must be fitted or johnson_christy_1972")
+    if gold_source == "johnson_christy_1972":
+        for wavelength_um in wavelengths_um:
+            au_johnson_christy_permittivity(wavelength_um)
     if not math.isfinite(gold_mesh_resolution_um) or not 0.005 <= gold_mesh_resolution_um <= 0.03:
         raise ValueError("invalid exploratory Au mesh step")
     out = Path(out)
@@ -95,7 +103,8 @@ def run_vector_grid(
         "full_vector_maxwell_solver": "femwell.maxwell.waveguide.compute_modes",
         "mode_matching": "same_mesh_vector_EH_Poynting_overlap_diagnostic_only",
         "sensor_geometry_peer_reviewed_and_frozen": False,
-        "Au_material_measured_data_provenance_verified": False,
+        "Au_material_measured_data_provenance_verified": gold_source == "johnson_christy_1972",
+        "Au_material_reference_only_not_sensor_film_measurement": True,
         "pml_validated": False,
         "mesh_convergence_verified": False,
         "mode_tracking_physically_verified": False,
@@ -138,7 +147,9 @@ def run_vector_grid(
         manifest = {
             "wavelengths_um": wavelengths_um, "analyte_ris": analyte_ris,
             "num_modes": num_modes, "gold_mesh_resolution_um": gold_mesh_resolution_um,
-            "Au": "repository_Rakic_style_fitted_model_not_measured_constants",
+            "Au": ("Johnson_Christy_1972_measured_bulk_reference" if gold_source == "johnson_christy_1972"
+                   else "repository_Rakic_style_fitted_model_not_measured_constants"),
+            "Au_source_manifest": au_reference_manifest() if gold_source == "johnson_christy_1972" else None,
             "silica": "three_term_Sellmeier",
             "temporal_convention": "exp(-i*omega*t)",
         }
@@ -155,7 +166,9 @@ def run_vector_grid(
         for ri_index, analyte_ri in enumerate(analyte_ris):
             for wavelength_index, wavelength_um in enumerate(wavelengths_um):
                 epsilon = basis0.zeros(dtype=np.complex128)
-                metal = fitted_gold_permittivity(wavelength_um)
+                metal = (complex(au_johnson_christy_permittivity(wavelength_um))
+                         if gold_source == "johnson_christy_1972"
+                         else fitted_gold_permittivity(wavelength_um))
                 silica = silica_index_sellmeier(wavelength_um)
                 for region in polygons:
                     eps = (
