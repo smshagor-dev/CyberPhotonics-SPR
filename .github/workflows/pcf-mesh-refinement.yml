@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/sprpcf/simulation/pcf_femwell_probe.py'
-      - 'src/sprpcf/validation/open_mesh_refinement.py'
+      - 'src/sprpcf/simulation/open_mesh_refinement.py'
       - 'scripts/probe_femwell_mesh_refinement.py'
       - 'tests/test_open_mesh_refinement.py'
       - '.github/workflows/pcf-mesh-refinement.yml'
