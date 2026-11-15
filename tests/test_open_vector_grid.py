@@ -1,0 +1,43 @@
+"""Conservative unit tests; fixtures MUST NOT constitute electromagnetic proof."""
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from sprpcf.simulation.open_vector_grid import matched_vector_overlaps, preflight_grid
+
+
+def test_grid_preflight_rejects_duplicated_or_invalid_optical_inputs() -> None:
+    preflight_grid((0.75, 0.8), (1.35, 1.36), 2)
+    with pytest.raises(ValueError, match="strictly increasing"):
+        preflight_grid((0.8, 0.8), (1.35, 1.36), 2)
+    with pytest.raises(ValueError, match="strictly increasing"):
+        preflight_grid((0.75, 0.8), (1.35, 1.35), 2)
+    with pytest.raises(ValueError, match="wavelengths exceed"):
+        preflight_grid((0.2, 0.8), (1.35, 1.36), 2)
+    with pytest.raises(ValueError, match="num_modes"):
+        preflight_grid((0.75, 0.8), (1.35, 1.36), 0)
+    with pytest.raises(ValueError, match="RI values"):
+        preflight_grid((0.75, 0.8), (0.9, 1.36), 2)
+
+
+def test_vector_eh_overlap_matcher_handles_mode_swap() -> None:
+    a, b = [MagicMock(), MagicMock()], [MagicMock(), MagicMock()]
+    # Reference A0 has its strongest overlap with candidate B1.
+    a[0].calculate_overlap.side_effect = [0.10 + 0j, 0.95 + 0j]
+    a[1].calculate_overlap.side_effect = [0.92 + 0j, 0.05 + 0j]
+    matches = matched_vector_overlaps(a, b)
+    assert [(r["previous_mode_index"], r["current_mode_index"]) for r in matches] == [(0, 1), (1, 0)]
+    assert matches[0]["vector_eh_poynting_overlap_abs"] == pytest.approx(0.95)
+    assert all(r["mode_identity_physically_verified"] is False for r in matches)
+
+
+def test_vector_overlap_rejects_bad_modes() -> None:
+    with pytest.raises(ValueError, match="nonempty"):
+        matched_vector_overlaps([], [])
+    mode = MagicMock()
+    mode.calculate_overlap.return_value = complex(float("nan"), 0)
+    with pytest.raises(ValueError, match="nonfinite"):
+        matched_vector_overlaps([mode], [mode])
