@@ -103,8 +103,18 @@ def silica_index_sellmeier(wavelength_um: float) -> float:
 
 def fitted_gold_permittivity(wavelength_um: float) -> complex:
     """Repository-compatible fitted model; not independently measured source."""
-    from sprpcf.simulation.open_physics import fitted_gold_epsilon
-    return fitted_gold_epsilon(wavelength_um)
+    if not math.isfinite(wavelength_um) or not 0.45 <= wavelength_um <= 1.7:
+        raise ValueError("gold fitted model only tested in 0.45–1.7 μm")
+    energy = 1.239841984 / wavelength_um
+    plasma = 9.03
+    epsilon = 1.53 - 0.760 * plasma**2 / (energy * (energy + 1j * 0.053))
+    for strength, damping, resonance in zip(
+        (0.024, 0.010, 0.071, 0.601, 4.384),
+        (0.241, 0.345, 0.870, 2.494, 2.214),
+        (0.415, 0.830, 2.969, 4.304, 13.32),
+    ):
+        epsilon += strength * plasma**2 / (resonance**2 - energy**2 - 1j * damping * energy)
+    return complex(epsilon)
 
 
 def _checksum(path: Path) -> str:
