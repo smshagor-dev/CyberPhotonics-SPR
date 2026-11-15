@@ -3,7 +3,7 @@ name: Experimental PCF RI-wavelength full-vector grid
 on:
   pull_request:
     paths:
-      - 'src/sprpcf/validation/open_vector_grid.py'
+      - 'src/sprpcf/simulation/open_vector_grid.py'
       - 'scripts/probe_femwell_ri_wavelength.py'
       - 'tests/test_open_vector_grid.py'
       - '.github/workflows/pcf-ri-wavelength-grid.yml'
