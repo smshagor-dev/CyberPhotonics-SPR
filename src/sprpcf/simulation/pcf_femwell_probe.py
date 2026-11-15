@@ -208,12 +208,22 @@ def run_femwell_pcf_probe(
         num_modes=num_modes, order=1, n_guess=n_silica,
     )
     eigenpairs = []
+    raw_fields: dict[str, Any] = {}
     for i, mode in enumerate(modes):
         neff = complex(mode.n_eff)
         if not np.isfinite(neff.real) or not np.isfinite(neff.imag):
             raise ValueError("computed FEM effective index is nonfinite")
+        electric = np.asarray(mode.E, dtype=np.complex128)
+        magnetic = np.asarray(mode.H, dtype=np.complex128)
+        if (not electric.size or not magnetic.size or
+                not np.isfinite(electric).all() or not np.isfinite(magnetic).all()):
+            raise ValueError("full-vector E/H field arrays are missing or nonfinite")
+        raw_fields[f"mode_{i}_E"] = electric
+        raw_fields[f"mode_{i}_H"] = magnetic
         eigenpairs.append({
             "mode_index": i, "n_eff_real": neff.real, "n_eff_imag": neff.imag,
+            "electric_field_dof_count": int(electric.size),
+            "magnetic_field_dof_count": int(magnetic.size),
             "mode_identity_independently_verified": False,
         })
     if not eigenpairs:
@@ -221,6 +231,8 @@ def run_femwell_pcf_probe(
 
     mode_path = out / "raw_eigenvalues.json"
     mode_path.write_text(json.dumps(eigenpairs, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    fields_path = out / "raw_eigenfields.npz"
+    np.savez_compressed(fields_path, **raw_fields)
     report = {
         "schema_version": 1,
         "experiment": "exploratory_2d_pcf_full_vector_fem_feasibility",
@@ -228,6 +240,7 @@ def run_femwell_pcf_probe(
         "solver_version": importlib.metadata.version("femwell"),
         "mesh_elements": int(mesh.nelements),
         "num_modes_computed": len(eigenpairs),
+        "full_vector_eh_dofs_archived": True,
         "fem_mode_solver_executed": True,
         "boundary_type": "finite-window-no-PML",
         "Au_mesh_resolution_um": gold_mesh_resolution_um,
@@ -240,7 +253,7 @@ def run_femwell_pcf_probe(
         "scientific_submission_ready": False,
         "full_vector_implementation_validated_for_pcf_spr": False,
         "runtime": {"python": platform.python_version(), "numpy": np.__version__},
-        "sha256": {p.name: _checksum(p) for p in (geometry_path, material_path, mesh_path, mode_path)},
+        "sha256": {p.name: _checksum(p) for p in (geometry_path, material_path, mesh_path, mode_path, fields_path)},
     }
     (out / "FEMWELL_PILOT.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return report
