@@ -81,7 +81,7 @@ class PlanarControl:
     n_effective_exact: complex
     relative_error: float
     relative_residual: float
-    near_interface_power_fraction: float
+    near_interface_field_l2_fraction: float
     loss_db_per_cm: float
     x_um: np.ndarray
     h_y: np.ndarray
@@ -143,7 +143,7 @@ def solve_planar_tm(
     return PlanarControl(
         mesh_step_um=dx, nodes=n, n_effective=result, n_effective_exact=expected,
         relative_error=float(abs(result - expected) / abs(expected)),
-        relative_residual=rel_residual, near_interface_power_fraction=fraction,
+        relative_residual=rel_residual, near_interface_field_l2_fraction=fraction,
         loss_db_per_cm=attenuation_db_per_cm(result, wavelength_um), x_um=x, h_y=vec,
     )
 
@@ -175,7 +175,7 @@ def run_planar_control(
         all(a > b for a, b in zip(errors, errors[1:]))
         and final.relative_error <= 0.005
         and final.relative_residual <= 1e-8
-        and final.near_interface_power_fraction >= 0.5
+        and final.near_interface_field_l2_fraction >= 0.5
         and final.n_effective.imag > 0
         and final.loss_db_per_cm > 0
     )
@@ -191,14 +191,14 @@ def run_planar_control(
     with curves_path.open("w", encoding="utf-8") as handle:
         handle.write(
             "mesh_step_um,nodes,n_eff_real,n_eff_imag,relative_error,"
-            "relative_residual,loss_db_per_cm,near_interface_fraction\n"
+            "relative_residual,loss_db_per_cm,near_interface_field_l2_fraction\n"
         )
         for c in controls:
             handle.write(
                 f"{c.mesh_step_um:.14g},{c.nodes},{c.n_effective.real:.14g},"
                 f"{c.n_effective.imag:.14g},{c.relative_error:.14g},"
                 f"{c.relative_residual:.14g},{c.loss_db_per_cm:.14g},"
-                f"{c.near_interface_power_fraction:.14g}\n"
+                f"{c.near_interface_field_l2_fraction:.14g}\n"
             )
     metal = fitted_gold_epsilon(wavelength_um)
     report = {
