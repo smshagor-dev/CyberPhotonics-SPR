@@ -8,6 +8,8 @@ import argparse
 import csv
 import json
 import math
+from zipfile import BadZipFile
+import numpy as np
 from pathlib import Path
 import sys
 
@@ -40,8 +42,11 @@ def verify_measured_au_grid(root: Path) -> dict:
             rows = list(csv.DictReader(fh))
         if not rows:
             errors.append("no native eigenmode records")
+        groups = {}
         for line, row in enumerate(rows, start=2):
             wl = float(row["wavelength_um"])
+            pair = (int(row["ri_index"]), int(row["wavelength_index"]))
+            groups.setdefault(pair, []).append(row)
             eps = complex(au_johnson_christy_permittivity(wl))
             got = complex(float(row["gold_epsilon_real"]), float(row["gold_epsilon_imag"]))
             if not (math.isclose(got.real, eps.real, rel_tol=1e-12, abs_tol=1e-12)
@@ -49,7 +54,23 @@ def verify_measured_au_grid(root: Path) -> dict:
                 errors.append(f"row {line} Au epsilon does not reproduce source material")
             if not (got.imag > 0 and math.isfinite(got.real) and math.isfinite(got.imag)):
                 errors.append(f"row {line} Au epsilon is not finite/passive")
-    except (OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
+        for (ri_index, wl_index), group in groups.items():
+            native = root / f"raw_vector_eh_ri{ri_index}_wl{wl_index}.npz"
+            with np.load(native, allow_pickle=False) as archive:
+                keys = {f"mode_{int(row['mode_index_native_untracked'])}_{field}"
+                        for row in group for field in ("E", "H")}
+                if set(archive.files) != keys:
+                    errors.append(f"{native.name}: unexpected/missing modal E/H keys")
+                    continue
+                for row in group:
+                    idx = int(row["mode_index_native_untracked"])
+                    for field in ("E", "H"):
+                        arr = archive[f"mode_{idx}_{field}"]
+                        expected_dofs = int(row[f"vector_field_{field.lower()}_dofs"])
+                        if (arr.size != expected_dofs or arr.size == 0 or not np.issubdtype(arr.dtype, np.number)
+                                or not np.isfinite(arr).all() or not np.any(arr != 0)):
+                            errors.append(f"{native.name}: invalid mode {idx} {field} archive")
+    except (OSError, ValueError, TypeError, KeyError, OverflowError, BadZipFile) as exc:
         errors.append(f"measured Au check incomplete: {exc}")
     return {
         "passed": not errors,
