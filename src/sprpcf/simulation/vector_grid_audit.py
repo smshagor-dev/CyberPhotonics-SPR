@@ -9,7 +9,7 @@ from pathlib import Path
 
 FALSE_GATES = (
     "sensor_geometry_peer_reviewed_and_frozen",
-    "Au_material_measured_data_provenance_verified", "pml_validated",
+    "pml_validated",
     "mesh_convergence_verified", "mode_tracking_physically_verified",
     "resonance_fwhm_verified", "physical_sensor_sensitivity_verified",
     "scientific_submission_ready",
@@ -48,6 +48,23 @@ def audit_grid(root):
         errors.append("unhashed required artifact")
     try:
         protocol = json.loads((root / "experiment_protocol.json").read_text())
+        au_source = protocol.get("Au")
+        if au_source == "Johnson_Christy_1972_measured_bulk_reference":
+            from sprpcf.simulation.materials_reference import au_reference_manifest
+            expected_measured = True
+            if protocol.get("Au_source_manifest") != au_reference_manifest():
+                errors.append("measured Au manifest does not match pinned source")
+            if report.get("Au_material_reference_only_not_sensor_film_measurement") is not True:
+                errors.append("measured bulk Au must not be labeled sensor-film measurement")
+        elif au_source == "repository_Rakic_style_fitted_model_not_measured_constants":
+            expected_measured = False
+            if protocol.get("Au_source_manifest") is not None:
+                errors.append("fitted gold must not carry measured Au reference")
+        else:
+            errors.append("unknown or missing Au material source")
+            expected_measured = False
+        if report.get("Au_material_measured_data_provenance_verified") is not expected_measured:
+            errors.append("Au source/provenance flag mismatch")
         ris, wavelengths, modes = protocol["analyte_ris"], protocol["wavelengths_um"], protocol["num_modes"]
         expected = {(i, j, k) for i in range(len(ris)) for j in range(len(wavelengths)) for k in range(modes)}
         with (root / "raw_eigenmode_grid.csv").open(newline="") as handle:
