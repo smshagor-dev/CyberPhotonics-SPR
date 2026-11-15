@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sprpcf.simulation.open_vector_grid import run_vector_grid
+from sprpcf.simulation.pcf_femwell_probe import ExploratoryPcfTopology
 
 
 def main() -> int:
@@ -22,9 +24,12 @@ def main() -> int:
     parser.add_argument("--num-modes", type=int, default=2)
     parser.add_argument("--gold-mesh-resolution-um", type=float, default=0.025)
     parser.add_argument("--gold-source", choices=("fitted", "johnson_christy_1972"), default="fitted")
+    parser.add_argument("--domain-halfwidth-um", type=float, default=5.5)
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args()
     try:
+        if not math.isfinite(args.domain_halfwidth_um) or not 5.0 <= args.domain_halfwidth_um <= 9.0:
+            raise ValueError("domain halfwidth must be finite and in [5.0,9.0] um")
         wavelengths = tuple(float(s.strip()) for s in args.wavelengths_um.split(","))
         analyte_ris = tuple(float(s.strip()) for s in args.analyte_ris.split(","))
         report = run_vector_grid(
@@ -32,6 +37,7 @@ def main() -> int:
             analyte_ris=analyte_ris, num_modes=args.num_modes,
             gold_mesh_resolution_um=args.gold_mesh_resolution_um,
             gold_source=args.gold_source,
+            topology=ExploratoryPcfTopology(domain_halfwidth_um=args.domain_halfwidth_um),
         )
     except Exception as exc:
         print(json.dumps({
