@@ -95,7 +95,7 @@ def freeze_mode_comparison_protocol(
         "scientific_submission_ready": False,
         "warning": "Time and hashes do not authenticate COMSOL, nor prove preregistration.",
     }
-    out.mkdir(parents=True, exist_ok=False)
+    out.mkdir(parents=True, exist_ok=True)
     with (out / PROTOCOL_NAME).open("x", encoding="utf-8") as stream:
         json.dump(protocol, stream, indent=2, sort_keys=True, allow_nan=False)
         stream.write("\n")
@@ -119,7 +119,18 @@ def _check_run(
     if (execution.get("model_session_mode", "per_batch_load") != expected_mode
             or inspected["model_session_mode"] != expected_mode):
         raise ValueError("Wrong COMSOL reload/reuse lifecycle assigned to comparison run")
+    frozen, source_hashes = _source_hashes(
+        plan_dir, benchmark_dir, model_path, config_path
+    )
+    for key in (
+        "campaign_plan_sha256", "planned_sweeps_sha256",
+        "model_sha256", "config_sha256",
+    ):
+        if execution.get(key) != source_hashes[key]:
+            raise ValueError("Run execution metadata mismatches frozen input: " + key)
     planned = int(execution.get("scheduled_solver_evaluations", -1))
+    if planned != frozen["planned_solver_evaluations"]:
+        raise ValueError("Run execution sample count differs from frozen plan")
     completed = inspected["committed_solver_evaluations"]
     if (inspected["remaining_solver_evaluations"] != 0
             or planned != completed
@@ -274,7 +285,7 @@ def compare_comsol_mode_results(
                 )
                 item["passed"] = not exceeded
         comparisons.append(item)
-    out.mkdir(parents=True, exist_ok=False)
+    out.mkdir(parents=True, exist_ok=True)
     rows_path = out / ROWS_NAME
     with rows_path.open("x", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(comparisons[0]))
