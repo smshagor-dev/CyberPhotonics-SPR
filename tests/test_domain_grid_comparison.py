@@ -18,6 +18,7 @@ def test_nearest_pairing_never_asserts_physical_mode_identity():
     assert [(a["small_mode_index_unverified"], a["large_mode_index_unverified"])
             for a in match["pairs"]] == [(0, 1), (1, 0)]
     assert not match["assignment_physics_verified"]
+    assert match["eigenvalue_assignment_ambiguous"] is False
     assert all(not p["core_spp_identity_verified"] for p in match["pairs"])
 
 
@@ -74,6 +75,7 @@ def test_valid_fixture_stays_unqualified(tmp_path, monkeypatch):
     small, large = _make_fixtures(tmp_path, monkeypatch)
     report = study.compare_domain_grids(small, large)
     assert report["mode_pairs_diagnostic_only"] == 8
+    assert "ambiguous_gridpoint_pairings" in report
     assert report["max_complex_n_eff_abs_delta"] > 0
     assert not report["PML_present"]
     assert not report["domain_convergence_verified"]
@@ -108,3 +110,12 @@ def test_same_mesh_or_reversed_domains_rejected(tmp_path, monkeypatch):
         study.compare_domain_grids(small, large)
     with pytest.raises(ValueError, match="domain halfwidth must increase"):
         study.compare_domain_grids(large, small)
+
+
+def test_nearly_degenerate_complex_eigenvalues_fail_ambiguity_diagnostic():
+    modes = study.eigenvalue_pairs(
+        [1.4000000 + 1e-7j, 1.4000001 + 2e-7j],
+        [1.4005000 + 1e-7j, 1.4005001 + 2e-7j],
+    )
+    assert modes["eigenvalue_assignment_ambiguous"] is True
+    assert modes["assignment_physics_verified"] is False
