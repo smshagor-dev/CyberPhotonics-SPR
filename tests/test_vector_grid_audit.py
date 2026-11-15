@@ -24,7 +24,9 @@ def test_integrity_tamper_and_false_gates(tmp_path):
         writer.writerows({"ri_index": i, "wavelength_index": j, "mode_index_native_untracked": 0}
                          for i in range(2) for j in range(2))
     report = {gate: False for gate in FALSE_GATES}
-    report.update(evidence_class="unqualified_solver_feasibility", completed=True, failures=[],
+    report.update(evidence_class="unqualified_solver_feasibility",
+                  Au_material_measured_data_provenance_verified=False,
+                  completed=True, failures=[],
                   solver_calls_completed=4, raw_eigenmode_rows=4,
                   artifacts_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                                     for p in tmp_path.iterdir()})
