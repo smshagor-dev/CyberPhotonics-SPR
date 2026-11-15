@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from sprpcf.validation.open_mesh_refinement import compare_mode_sets, run_mesh_refinement
+from sprpcf.simulation.open_mesh_refinement import compare_mode_sets, run_mesh_refinement
 
 
 def test_nearest_eigenvalue_matching_permutation() -> None:
@@ -43,7 +43,7 @@ def test_mesh_orchestration_source_flags_never_claim_pcf_evidence(tmp_path: Path
         )
         return {"mesh_elements": 1000, "full_vector_eh_dofs_archived": False}
 
-    with patch("sprpcf.validation.open_mesh_refinement.run_femwell_pcf_probe", side_effect=fake_solver):
+    with patch("sprpcf.simulation.open_mesh_refinement.run_femwell_pcf_probe", side_effect=fake_solver):
         report = run_mesh_refinement(
             tmp_path, gold_mesh_steps_um=(0.03, 0.025, 0.02), num_modes=2,
         )
@@ -59,7 +59,7 @@ def test_mesh_orchestration_source_flags_never_claim_pcf_evidence(tmp_path: Path
 def test_bad_or_partial_solver_run_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="strictly decreasing"):
         run_mesh_refinement(tmp_path, gold_mesh_steps_um=(0.03, 0.03, 0.02))
-    with patch("sprpcf.validation.open_mesh_refinement.run_femwell_pcf_probe", side_effect=RuntimeError("solver failed")):
+    with patch("sprpcf.simulation.open_mesh_refinement.run_femwell_pcf_probe", side_effect=RuntimeError("solver failed")):
         with pytest.raises(RuntimeError, match="solver failed"):
             run_mesh_refinement(tmp_path)
     report = json.loads((tmp_path / "REFINEMENT_READINESS.json").read_text(encoding="utf-8"))
