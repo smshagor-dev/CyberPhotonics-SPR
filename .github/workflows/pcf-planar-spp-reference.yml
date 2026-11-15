@@ -1,0 +1,63 @@
+name: Native Johnson-Christy Au planar SPP Maxwell reference
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pcf-planar-spp-reference.yml'
+      - 'scripts/planar_spp_reference.py'
+      - 'tests/test_planar_spp_reference.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  planar-spatial-reference:
+    name: Analytic planar limit of archived full-vector PCF eigenmodes (not solver cross-check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python reference dependencies
+        run: python -m pip install numpy scipy pytest
+      - name: Software-only equation and provenance tests
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q -W error tests/test_planar_spp_reference.py tests/test_materials_reference.py
+      - name: Download authentic measured-Au Femwell native data from successful immutable Actions run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/native-measured-au
+          gh run download 43685290196 \
+            --repo smshagor-dev/CyberPhotonics-SPR \
+            --name measured-reference-au-exploratory-2d-vector-ri-grid \
+            --dir /tmp/native-measured-au
+      - name: Numerically evaluate independent analytic planar limit against archived eigenvalues
+        env:
+          PYTHONPATH: src
+        run: |
+          python scripts/planar_spp_reference.py \
+            /tmp/native-measured-au \
+            --out /tmp/planar-reference/PLANAR_SPP_REFERENCE.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('/tmp/planar-reference/PLANAR_SPP_REFERENCE.json').read_text())
+          assert r['sample_count'] == 9
+          assert r['not_an_independent_full_vector_pcf_solver'] is True
+          assert r['scientific_submission_ready'] is False
+          assert r['independent_solver_verified'] is False
+          assert r['core_spp_phase_matching_verified'] is False
+          PY
+      - name: Preserve source-traceable analytic reference or recorded failure
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analytic-planar-spp-vs-native-measured-au-fem-unqualified
+          if-no-files-found: warn
+          path: /tmp/planar-reference/
