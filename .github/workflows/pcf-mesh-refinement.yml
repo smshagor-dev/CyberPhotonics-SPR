@@ -1,0 +1,63 @@
+name: Exploratory 2D PCF Au mesh refinement
+
+on:
+  pull_request:
+    paths:
+      - 'src/sprpcf/simulation/pcf_femwell_probe.py'
+      - 'src/sprpcf/validation/open_mesh_refinement.py'
+      - 'scripts/probe_femwell_mesh_refinement.py'
+      - 'tests/test_open_mesh_refinement.py'
+      - '.github/workflows/pcf-mesh-refinement.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refinement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Native Gmsh libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libglu1-mesa libgl1
+      - name: Install optional open-source numerical solver
+        run: python -m pip install "femwell>=0.1,<0.2" "meshio>=5.3" "shapely>=2" "pytest>=7.4"
+      - name: Audit matching and failure controls (fixtures are not physics)
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q -W error tests/test_open_mesh_refinement.py
+      - name: Execute genuine three-mesh PCF-FEM refinement
+        run: |
+          python scripts/probe_femwell_mesh_refinement.py \
+            --out /tmp/open-physics-refinement \
+            --gold-mesh-steps-um 0.03,0.025,0.02 \
+            --wavelength-um 0.8 --analyte-ri 1.36 \
+            --num-modes 2 --strict
+      - name: Enforce unqualified scientific evidence status
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('/tmp/open-physics-refinement/REFINEMENT_READINESS.json').read_text())
+          assert report['completed']
+          assert len(report['runs']) == 3
+          assert len(report['comparisons']) == 4
+          assert not report['mesh_convergence_verified']
+          assert not report['pml_validated']
+          assert not report['modal_branch_verified']
+          assert not report['scientific_submission_ready']
+          assert all(p['pilot_manifest_sha256'] for p in report['runs'])
+          PY
+      - name: Upload actual mesh eigenpair and full-vector field archive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-unqualified-mesh-refinement
+          if-no-files-found: warn
+          path: /tmp/open-physics-refinement/
