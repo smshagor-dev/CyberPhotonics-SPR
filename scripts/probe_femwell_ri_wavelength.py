@@ -11,7 +11,7 @@ import sys
 import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from sprpcf.validation.open_vector_grid import run_vector_grid
+from sprpcf.simulation.open_vector_grid import run_vector_grid
 
 
 def main() -> int:
