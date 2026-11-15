@@ -1,0 +1,62 @@
+name: Experimental PCF full-vector FEM feasibility
+
+on:
+  pull_request:
+    paths:
+      - 'src/sprpcf/simulation/pcf_femwell_probe.py'
+      - 'scripts/probe_femwell_pcf.py'
+      - 'tests/test_pcf_femwell_feasibility.py'
+      - '.github/workflows/pcf-femwell-feasibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  femwell-pcf-pilot:
+    name: 2D vectorial Femwell PCF solver pilot (not research evidence)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install native Gmsh runtime library
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libglu1-mesa libgl1
+      - name: Install open-source mesh and vectorial mode solver
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "femwell>=0.1,<0.2" "shapely>=2" "meshio>=5.3" "pytest>=7.4"
+      - name: Verify exploratory CAD partition and optical material guards
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q -W error tests/test_pcf_femwell_feasibility.py
+      - name: Solve actual exploratory 2D PCF mode eigenproblem
+        run: |
+          python scripts/probe_femwell_pcf.py --out /tmp/pcf-femwell-pilot \
+            --wavelength-um 0.8 --analyte-ri 1.36 \
+            --num-modes 2 --gold-mesh-resolution-um 0.025 --strict
+      - name: Enforce explicit nonpublication proof boundary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('/tmp/pcf-femwell-pilot/FEMWELL_PILOT.json').read_text())
+          assert r['fem_mode_solver_executed'] is True
+          assert r['num_modes_computed'] >= 1
+          assert r['scientific_submission_ready'] is False
+          assert r['physical_sensor_sensitivity_verified'] is False
+          assert r['meshing_converged'] is False
+          assert r['pml_validated'] is False
+          assert r['modal_branch_verified'] is False
+          PY
+      - name: Archive actual raw exploratory FEM outputs or failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exploratory-femwell-pcf-pilot
+          if-no-files-found: warn
+          path: /tmp/pcf-femwell-pilot/
