@@ -1,0 +1,55 @@
+name: Open-source physics controls (analytical only)
+
+on:
+  pull_request:
+    paths:
+      - 'src/sprpcf/simulation/open_physics.py'
+      - 'scripts/probe_open_physics.py'
+      - 'tests/test_open_physics.py'
+      - '.github/workflows/open-physics-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  planar-sp-control:
+    name: Planar SPP FDFD convergence (NOT PCF)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install independent numerical dependencies
+        run: python -m pip install "numpy>=2.2,<3" "scipy>=1.10" "pytest>=7.4"
+      - name: Test signed optical loss, input validation and convergence
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q -W error tests/test_open_physics.py
+      - name: Execute and archive genuine planar TM eigenmode control
+        run: |
+          python scripts/probe_open_physics.py \
+            --out /tmp/planar-control \
+            --wavelength-um 0.8 --dielectric-ri 1.36 \
+            --mesh-steps-um 0.08,0.04,0.02,0.01 --strict
+      - name: Enforce control-only scientific qualification
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('/tmp/planar-control/CONTROL_READINESS.json').read_text())
+          assert report['pass'] is True
+          assert report['scientific_submission_ready'] is False
+          assert report['pcf_spr_electromagnetic_model_verified'] is False
+          assert report['open_fem_physics_qualified'] is False
+          assert report['physical_sensor_sensitivity_verified'] is False
+          assert report['relative_error'] < 0.005
+          PY
+      - name: Upload raw numerical control-only archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: analytic-planar-spp-control
+          if-no-files-found: error
+          path: /tmp/planar-control/
