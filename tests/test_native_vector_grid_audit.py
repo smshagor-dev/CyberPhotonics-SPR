@@ -69,3 +69,40 @@ def test_publication_flag_true_fails(tmp_path):
 
 def test_missing_manifest_fails(tmp_path):
     assert audit_grid(tmp_path)["passed"] is False
+
+
+def test_duplicate_mode_rejected_with_updated_manifest(tmp_path):
+    report = make_archive(tmp_path)
+    p = tmp_path / "raw_eigenmode_grid.csv"
+    lines = p.read_text().splitlines()
+    p.write_text("\n".join(lines + [lines[1]]) + "\n")
+    report["artifacts_sha256"][p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    (tmp_path / "GRID_READINESS.json").write_text(json.dumps(report))
+    result = audit_grid(tmp_path)
+    assert result["passed"] is False
+    assert "duplicate or unexpected" in str(result["errors"])
+    assert result["publication_qualified"] is False
+
+
+def test_nonfinite_eigenvalue_rejected_with_updated_manifest(tmp_path):
+    report = make_archive(tmp_path)
+    p = tmp_path / "raw_eigenmode_grid.csv"
+    lines = p.read_text().splitlines()
+    lines[1] = lines[1].replace(",1.4,0.01,", ",nan,0.01,")
+    p.write_text("\n".join(lines) + "\n")
+    report["artifacts_sha256"][p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    (tmp_path / "GRID_READINESS.json").write_text(json.dumps(report))
+    result = audit_grid(tmp_path)
+    assert result["passed"] is False
+    assert "nonfinite n_eff_real" in str(result["errors"])
+
+
+def test_missing_native_field_rejected_even_with_updated_manifest(tmp_path):
+    report = make_archive(tmp_path)
+    name = "raw_vector_eh_ri0_wl0.npz"
+    (tmp_path / name).unlink()
+    report["artifacts_sha256"].pop(name)
+    (tmp_path / "GRID_READINESS.json").write_text(json.dumps(report))
+    result = audit_grid(tmp_path)
+    assert result["passed"] is False
+    assert "untracked native E/H field" in str(result["errors"])
