@@ -1,0 +1,20 @@
+name: Femwell archive integrity (software-only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/audit_femwell_grid_archive.py'
+      - 'tests/test_femwell_grid_archive_integrity.py'
+      - '.github/workflows/femwell-grid-integrity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'pytest>=7.4'
+      - run: python -m pytest -q tests/test_femwell_grid_archive_integrity.py
