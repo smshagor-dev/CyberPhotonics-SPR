@@ -8,7 +8,7 @@ import sys
 import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from sprpcf.validation.open_mesh_refinement import run_mesh_refinement
+from sprpcf.simulation.open_mesh_refinement import run_mesh_refinement
 
 
 def main() -> int:
