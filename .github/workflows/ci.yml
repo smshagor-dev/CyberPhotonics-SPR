@@ -243,6 +243,10 @@ jobs:
         if: matrix.python-version == '3.11'
         run: |
           pytest -q -W error tests/test_solver_spectrum_quality.py tests/test_comsol_sweep.py
+      - name: "Stage 13 - prevent duplicate-RI and cross-request derivative leakage"
+        if: matrix.python-version == '3.11'
+        run: |
+          pytest -q -W error tests/test_comsol_request_derivatives.py
       - name: Upload publication demo artifact
         if: matrix.python-version == '3.11'
         uses: actions/upload-artifact@v7

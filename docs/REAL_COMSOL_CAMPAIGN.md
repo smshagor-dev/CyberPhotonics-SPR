@@ -206,3 +206,14 @@ resonance, FWHM, optical wavelength grid and physical parameter values
 pass the [spectrum quality rules](COMSOL_SPECTRUM_QUALITY.md). Failed
 individual solves remain in the output ledger. These checks are
 necessary *data hygiene*, not proof of model or physical correctness.
+
+
+## Stage 13: protect COMSOL solver outputs from request-mixed derivatives
+
+The COMSOL geometry-runner no longer assumes that an arbitrary batch
+defines a valid sensitivity study. Raw spectra are retained even when
+multiple design requests repeat a geometry and RI, without deriving
+misleading cross-request sensitivity/FOM or losing completed solver work.
+The explicit unique-RI grid path still supports labeled unqualified
+diagnostics. See
+[COMSOL_REQUEST_SAFE_DERIVATIVES.md](COMSOL_REQUEST_SAFE_DERIVATIVES.md).
