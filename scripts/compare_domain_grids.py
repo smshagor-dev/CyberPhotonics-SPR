@@ -43,6 +43,8 @@ def eigenvalue_pairs(left: list[complex], right: list[complex]) -> dict:
         diagonal = float(cost[0, 0] + cost[1, 1])
         swapped = float(cost[0, 1] + cost[1, 0])
         margin = abs(diagonal - swapped)
+    # Diagnostic threshold only; a tiny assignment margin means the pairing is unstable.
+    ambiguous = margin is None or margin <= max(1e-9, 0.01 * assignment_cost)
     pairs = [{
         "small_mode_index_unverified": int(x),
         "large_mode_index_unverified": int(y),
@@ -60,6 +62,8 @@ def eigenvalue_pairs(left: list[complex], right: list[complex]) -> dict:
         "pairs": pairs,
         "optimal_assignment_cost": assignment_cost,
         "two_mode_alternative_assignment_margin": margin,
+        "eigenvalue_assignment_ambiguous": ambiguous,
+        "assignment_margin_is_diagnostic_not_mode_proof": True,
         "assignment_physics_verified": False,
     }
 
@@ -121,6 +125,7 @@ def compare_domain_grids(small: Path, large: Path) -> dict:
         "mesh_resolution_near_gold_um": p[0]["gold_mesh_resolution_um"],
         "eigenvalue_comparisons": entries,
         "mode_pairs_diagnostic_only": len(pairs),
+        "ambiguous_gridpoint_pairings": sum(bool(x["eigenvalue_assignment_ambiguous"]) for x in entries),
         "max_complex_n_eff_abs_delta": max(x["complex_n_eff_abs_delta"] for x in pairs),
         "max_relative_imag_n_eff_delta": max(x["relative_imag_n_eff_delta"] for x in pairs),
         "domain_and_remeshing_effects_not_separable": True,
