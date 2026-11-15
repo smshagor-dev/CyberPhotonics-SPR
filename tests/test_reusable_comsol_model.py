@@ -143,7 +143,13 @@ def test_resume_creates_new_model_session_and_does_not_repeat_committed_samples(
     assert tracker.start_count == 2
     assert tracker.solve_count == 30  # prior seven were not rerun
     assert len(done["session_evidence"]) == 2
-    assert [s["status"] for s in done["session_evidence"]] == [
+    # Session IDs are random UUIDs and sorted lexicographically by the
+    # provenance audit, NOT by execution date. Compare frozen sample ranges.
+    ordered_sessions = sorted(
+        done["session_evidence"], key=lambda item: item["first_sample"]
+    )
+    assert [s["first_sample"] for s in ordered_sessions] == [0, 7]
+    assert [s["status"] for s in ordered_sessions] == [
         "interrupted", "completed",
     ]
     assert done["scientific_submission_ready"] is False
