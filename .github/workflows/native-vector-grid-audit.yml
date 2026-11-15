@@ -1,0 +1,44 @@
+name: Native vector-grid archive audit regression
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/audit_native_vector_grid.py'
+      - 'scripts/audit_native_grid_zip.py'
+      - 'tests/test_native_vector_grid_audit.py'
+      - '.github/workflows/native-vector-grid-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archive-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audit test dependencies
+        run: python -m pip install 'pytest>=7.4,<10' 'numpy>=1.24,<3'
+      - name: Run fail-closed native archive regression tests
+        run: python -m pytest -q -W error tests/test_native_vector_grid_audit.py tests/test_native_grid_zip.py
+      - name: Confirm CLI rejects missing archive
+        run: |
+          if python scripts/audit_native_vector_grid.py /tmp/nonexistent-archive; then
+            echo 'ERROR: missing native archive was accepted'
+            exit 1
+          fi
+      - name: Confirm software-only scope
+        run: |
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from audit_native_vector_grid import audit_grid
+          result = audit_grid(Path('/tmp/nonexistent-archive'))
+          assert result['passed'] is False
+          assert result['publication_qualified'] is False
+          PY
