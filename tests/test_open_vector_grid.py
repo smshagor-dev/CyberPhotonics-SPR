@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sprpcf.validation.open_vector_grid import matched_vector_overlaps, preflight_grid
+from sprpcf.simulation.open_vector_grid import matched_vector_overlaps, preflight_grid
 
 
 def test_grid_preflight_rejects_duplicated_or_invalid_optical_inputs() -> None:
