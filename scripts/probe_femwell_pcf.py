@@ -53,6 +53,8 @@ def main() -> int:
         "fem_mode_solver_executed": report["fem_mode_solver_executed"],
         "mesh_elements": report["mesh_elements"],
         "num_modes_computed": report["num_modes_computed"],
+        "raw_eigenvalues": json.loads((args.out / "raw_eigenvalues.json").read_text(encoding="utf-8")),
+        "full_vector_eh_dofs_archived": report["full_vector_eh_dofs_archived"],
         "scientific_submission_ready": False,
         "report": str(args.out / "FEMWELL_PILOT.json"),
     }, indent=2))
