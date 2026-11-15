@@ -1,0 +1,74 @@
+name: Measured-Au PCF finite-box domain sensitivity (exploratory)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pcf-domain-window-study.yml'
+      - 'scripts/probe_femwell_ri_wavelength.py'
+      - 'scripts/compare_domain_grids.py'
+      - 'tests/test_domain_grid_comparison.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  finite-box-domain-study:
+    name: Actual vector Maxwell domain/remeshing diagnostic (not PML-converged)
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install native Gmsh libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libglu1-mesa libgl1
+      - name: Install open-source FEM and Python numerical dependencies
+        run: python -m pip install "femwell>=0.1,<0.2" "meshio>=5.3" "shapely>=2" "pytest>=7.4"
+      - name: Unit regressions (fixtures are not numerical physics)
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q -W error tests/test_domain_grid_comparison.py tests/test_measured_au_fem_grid.py
+      - name: Execute eight actual measured-Au Maxwell eigenmode solves
+        run: |
+          set -eu
+          for WIDTH in 5.5 7.0; do
+            python scripts/probe_femwell_ri_wavelength.py \
+              --out "/tmp/measured-au-domain-study/width_$WIDTH" \
+              --wavelengths-um 0.75,0.80 \
+              --analyte-ris 1.35,1.36 \
+              --gold-mesh-resolution-um 0.025 \
+              --gold-source johnson_christy_1972 \
+              --num-modes 2 \
+              --domain-halfwidth-um "$WIDTH" --strict
+            python scripts/verify_measured_au_fem_grid.py \
+              "/tmp/measured-au-domain-study/width_$WIDTH"
+          done
+      - name: Compare actual native archives with nonpublication safeguards
+        run: |
+          python scripts/compare_domain_grids.py \
+            /tmp/measured-au-domain-study/width_5.5 \
+            /tmp/measured-au-domain-study/width_7.0 \
+            --out /tmp/measured-au-domain-study/DOMAIN_DIAGNOSTIC.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('/tmp/measured-au-domain-study/DOMAIN_DIAGNOSTIC.json').read_text())
+          assert r['mode_pairs_diagnostic_only'] == 8
+          assert r['scientific_submission_ready'] is False
+          assert r['domain_convergence_verified'] is False
+          assert r['PML_present'] is False
+          assert r['core_spp_identity_verified'] is False
+          assert r['failure_count'] == 0
+          PY
+      - name: Preserve native mesh fields, source records and failure provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measured-au-finite-box-domain-5p5-vs-7p0-unqualified
+          if-no-files-found: warn
+          retention-days: 90
+          path: /tmp/measured-au-domain-study/
