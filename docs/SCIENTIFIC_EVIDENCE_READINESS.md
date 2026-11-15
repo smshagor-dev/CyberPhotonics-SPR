@@ -307,3 +307,14 @@ checkpoint batches, with owned-model removal on completion/interruption.
 This is a performance/resource-lifetime engineering improvement only.
 It does not establish physical solver results, equivalence of numerical
 initialization, mesh/material/PML validity or scientific submission readiness.
+
+
+## Stage 15: compare numerical outputs before endorsing reused-model mode
+
+The [COMSOL model-mode equivalence audit](COMSOL_MODEL_MODE_EQUIVALENCE.md)
+provides frozen-source, frozen-threshold, complete paired-spectrum
+comparisons for `per_batch_load` versus `reused_loaded_model`
+checkpoint campaigns. It refuses missing/altered samples and records
+operator-supplied session-native log coverage. CI uses synthetic
+fixtures only; a real licensed COMSOL A/B experiment and independent
+numerical/mode/mesh review are still missing under issue #42.
