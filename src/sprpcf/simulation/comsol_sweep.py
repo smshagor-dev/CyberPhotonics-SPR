@@ -128,17 +128,69 @@ def _optional_grid_derivatives(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+class ComsolModelSession:
+    """Own one loaded .mph model for a bounded checkpoint execution session.
+
+    MPh is process-singleton. Reuse its in-memory model within one invocation,
+    release *only that model* on exit, and leave the shared client/server alone.
+    No automatic reconnect, fallback or fabricated result is permitted.
+    """
+
+    def __init__(self, model_path: Path, config_path: Path):
+        self.model_path = Path(model_path).resolve()
+        self.config_path = Path(config_path).resolve()
+        self.config = _load_config(self.config_path)
+        self.client: Any | None = None
+        self.model: Any | None = None
+
+    def __enter__(self) -> "ComsolModelSession":
+        client = _load_mph().start()
+        loaded = client.load(str(self.model_path))
+        self.client, self.model = client, loaded
+        return self
+
+    def run(
+        self, model_path: Path, config_path: Path, geometries: Sequence[Geometry],
+    ) -> pd.DataFrame:
+        if self.model is None:
+            raise RuntimeError("No active loaded COMSOL model session")
+        if (Path(model_path).resolve() != self.model_path
+                or Path(config_path).resolve() != self.config_path):
+            raise ValueError("Loaded COMSOL model session cannot switch model/config paths")
+        return _run_geometries(
+            self.model_path, self.config, geometries,
+            derive_grid_diagnostics=False, loaded_model=self.model,
+        )
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        try:
+            if self.model is not None and self.client is not None:
+                # MPh Client.remove(model) is the documented ownership cleanup.
+                # Never call clear() or disconnect() on a shared MPh singleton.
+                remove = getattr(self.client, "remove", None)
+                if callable(remove):
+                    remove(self.model)
+        finally:
+            self.model = None
+            self.client = None
+        return False
+
+
 def _run_geometries(
     model_path: Path, config: dict[str, Any], geometries: Sequence[Geometry], *,
-    derive_grid_diagnostics: bool = False,
+    derive_grid_diagnostics: bool = False, loaded_model: Any | None = None,
 ) -> pd.DataFrame:
-    mph = _load_mph()
     wavelength_expression = config.get("wavelength_expression", "lambda")
     loss_expression = config.get("loss_expression", "loss")
     study = config.get("study", "std1")
 
-    client = mph.start()
-    model = client.load(str(model_path))
+    # Legacy direct calls retain their existing independent load behavior.
+    # Checkpoint mode passes a loaded model for all batches in one invocation.
+    if loaded_model is None:
+        client = _load_mph().start()
+        model = client.load(str(model_path))
+    else:
+        model = loaded_model
     rows: list[dict[str, float | int | str]] = []
 
     for sample_id, geometry in enumerate(geometries):
