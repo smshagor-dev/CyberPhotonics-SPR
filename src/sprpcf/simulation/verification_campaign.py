@@ -489,6 +489,7 @@ def seal_comsol_campaign(
         manifest["session_log_evidence_sha256"] = sha256_file(index)
         manifest["session_log_provenance_required"] = True
         manifest["execution_mode"] = "checkpointed_batches"
+        manifest["model_session_mode"] = run.get("model_session_mode", "per_batch_load")
         manifest["solver_log_type"] = "one_native_log_from_complete_bound_session_ledger"
     for role, (source, filename) in files.items():
         destination = out / filename
