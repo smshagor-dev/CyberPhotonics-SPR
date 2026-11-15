@@ -21,6 +21,7 @@ def main() -> int:
     parser.add_argument("--analyte-ris", default="1.35,1.36,1.37")
     parser.add_argument("--num-modes", type=int, default=2)
     parser.add_argument("--gold-mesh-resolution-um", type=float, default=0.025)
+    parser.add_argument("--gold-source", choices=("fitted", "johnson_christy_1972"), default="fitted")
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args()
     try:
@@ -30,6 +31,7 @@ def main() -> int:
             args.out, wavelengths_um=wavelengths,
             analyte_ris=analyte_ris, num_modes=args.num_modes,
             gold_mesh_resolution_um=args.gold_mesh_resolution_um,
+            gold_source=args.gold_source,
         )
     except Exception as exc:
         print(json.dumps({
