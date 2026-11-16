@@ -1,5 +1,5 @@
 import unittest
-from complex_richardson_direction import extrapolate
+from research.complex_richardson_direction import extrapolate
 
 class TestComplexRichardson(unittest.TestCase):
     def test_exact_complex_second_order(self):
