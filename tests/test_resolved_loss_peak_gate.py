@@ -33,3 +33,20 @@ class TestLossPeak(unittest.TestCase):
     def test_invalid_ri(self):
         x,y=self.spectrum();a=analyze(x,y,max_step_um=.002)
         with self.assertRaises(ValueError): sensitivity_nm_per_riu(a,a,1.35,1.35)
+
+    def test_subgrid_peak(self):
+        x,y=self.spectrum(.8033)
+        p=analyze(x,y,max_step_um=.002)
+        self.assertAlmostEqual(p.resonance_um,.8033,delta=.00015)
+    def test_subgrid_sensitivity(self):
+        x,y=self.spectrum(.8033);a=analyze(x,y,max_step_um=.002)
+        x,y=self.spectrum(.8071);b=analyze(x,y,max_step_um=.002)
+        self.assertAlmostEqual(sensitivity_nm_per_riu(a,b,1.35,1.36),380,delta=15)
+    def test_nonuniform_grid(self):
+        x=[.7+i*.002+(.00015 if i%2 else 0) for i in range(101)]
+        y=[2+10/(1+((v-.8033)/.02)**2) for v in x]
+        self.assertAlmostEqual(analyze(x,y,max_step_um=.0022).resonance_um,.8033,delta=.0002)
+    def test_flat_top_rejected(self):
+        x,y=self.spectrum(.8)
+        y[100]=y[99]=y[101]=max(y)
+        with self.assertRaises(ValueError): analyze(x,y,max_step_um=.002)
