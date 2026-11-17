@@ -29,13 +29,13 @@ def audit(root):
     for name, values in (("wavelengths_um", wl), ("analyte_ris", ri)):
         if not all(type(v) in (int, float) and math.isfinite(v) and v > 0 for v in values):
             errors.append(f"invalid {name} values")
-        if len(set(map(str, values))) != len(values):
+        if len(set(values)) != len(values):
             errors.append(f"duplicate {name} values")
     modes = protocol.get("num_modes")
     expected = len(wl) * len(ri)
     if type(modes) is not int or modes < 1 or len(wl) < 2 or len(ri) < 2:
         errors.append("invalid protocol dimensions")
-    if report.get("solver_calls_completed") != expected or report.get("completed") is not True:
+    if type(report.get("solver_calls_completed")) is not int or report.get("solver_calls_completed") != expected or report.get("completed") is not True:
         errors.append("incomplete solver campaign")
     if type(modes) is not int or modes < 1 or len(rows) != expected * modes:
         errors.append("wrong eigenmode row count")
@@ -45,7 +45,7 @@ def audit(root):
             if type(modes) is not int or modes < 1:
                 raise ValueError("invalid mode count")
             raw_indices = [row[x] for x in ("ri_index", "wavelength_index", "mode_index_native_untracked")]
-            if any(not v.isascii() or not v.isdecimal() for v in raw_indices):
+            if any(not isinstance(v, str) or not v.isascii() or not v.isdecimal() or str(int(v)) != v for v in raw_indices):
                 raise ValueError("noncanonical integer index")
             i, j, k = map(int, raw_indices)
             if not (0 <= i < len(ri) and 0 <= j < len(wl) and 0 <= k < modes):
@@ -58,7 +58,7 @@ def audit(root):
             identities.add((i, j, k))
         except (ValueError, KeyError, TypeError):
             errors.append("invalid row identity")
-    if len(identities) != len(rows):
+    if len(identities) != len(rows) or (type(modes) is int and modes > 0 and len(identities) != expected * modes):
         errors.append("duplicate mode identities")
     required = {"pcf_frozen_exploratory_grid_mesh.msh", "topology.json",
                 "experiment_protocol.json", "raw_eigenmode_grid.csv",
