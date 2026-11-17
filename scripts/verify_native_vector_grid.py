@@ -2,6 +2,7 @@
 import csv
 import hashlib
 import json
+import math
 from pathlib import Path
 
 
@@ -25,6 +26,11 @@ def audit(root):
     if not isinstance(wl, list) or not isinstance(ri, list):
         wl, ri = [], []
         errors.append("invalid protocol grid shape")
+    for name, values in (("wavelengths_um", wl), ("analyte_ris", ri)):
+        if not all(type(v) in (int, float) and math.isfinite(v) and v > 0 for v in values):
+            errors.append(f"invalid {name} values")
+        if len(set(map(str, values))) != len(values):
+            errors.append(f"duplicate {name} values")
     modes = protocol.get("num_modes")
     expected = len(wl) * len(ri)
     if type(modes) is not int or modes < 1 or len(wl) < 2 or len(ri) < 2:
@@ -38,10 +44,16 @@ def audit(root):
         try:
             if type(modes) is not int or modes < 1:
                 raise ValueError("invalid mode count")
-            i, j, k = (int(row[x]) for x in ("ri_index", "wavelength_index", "mode_index_native_untracked"))
+            raw_indices = [row[x] for x in ("ri_index", "wavelength_index", "mode_index_native_untracked")]
+            if any(not v.isascii() or not v.isdecimal() for v in raw_indices):
+                raise ValueError("noncanonical integer index")
+            i, j, k = map(int, raw_indices)
             if not (0 <= i < len(ri) and 0 <= j < len(wl) and 0 <= k < modes):
                 raise ValueError("index out of range")
-            if float(row["analyte_ri"]) != float(ri[i]) or float(row["wavelength_um"]) != float(wl[j]):
+            row_ri, row_wl = float(row["analyte_ri"]), float(row["wavelength_um"])
+            if not math.isfinite(row_ri) or not math.isfinite(row_wl):
+                raise ValueError("nonfinite row coordinate")
+            if row_ri != float(ri[i]) or row_wl != float(wl[j]):
                 raise ValueError("protocol mismatch")
             identities.add((i, j, k))
         except (ValueError, KeyError, TypeError):
@@ -60,7 +72,11 @@ def audit(root):
     for name in sorted(required):
         if name not in digests:
             errors.append(f"missing digest: {name}")
-        elif not (root / name).is_file() or hashlib.sha256((root / name).read_bytes()).hexdigest() != digests[name]:
+        elif ((root / name).is_symlink() or not (root / name).is_file()
+              or not isinstance(digests[name], str)
+              or len(digests[name]) != 64
+              or any(c not in "0123456789abcdef" for c in digests[name])
+              or hashlib.sha256((root / name).read_bytes()).hexdigest() != digests[name]):
             errors.append(f"file absent or hash mismatch: {name}")
     if any(report.get(flag) is True for flag in ("physics_qualified", "publication_ready", "comsol_verified")):
         errors.append("unsafe publication or COMSOL claim")
