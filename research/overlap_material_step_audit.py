@@ -10,7 +10,7 @@ def _normalized(fields, weights):
     if not np.isfinite(f).all():
         raise ValueError("nonfinite fields")
     n = np.einsum("mqi,mqi,q->m", f.conj(), f, weights).real
-    if np.any(n <= 1e-24):
+    if not np.isfinite(n).all() or np.any(n <= 0):
         raise ValueError("zero field")
     return f / np.sqrt(n)[:, None, None]
 
