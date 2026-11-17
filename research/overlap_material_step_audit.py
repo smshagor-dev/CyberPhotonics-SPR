@@ -61,12 +61,17 @@ def audit_overlap(e0, h0, e1, h1, weights, *, mesh0, mesh1,
         w = np.asarray(weights, dtype=float)
         if w.ndim != 1 or not np.isfinite(w).all() or np.any(w <= 0):
             raise ValueError("invalid quadrature")
+        # A common positive quadrature scale cancels in normalized overlaps.
+        # Scaling first avoids overflow for otherwise valid very large weights.
+        w = w / np.max(w)
         e0, h0, e1, h1 = (_normalized(f, w) for f in (e0, h0, e1, h1))
         if not (e0.shape == h0.shape == e1.shape == h1.shape):
             raise ValueError("field dimensions differ")
         oe = abs(np.einsum("iqk,jqk,q->ij", e0.conj(), e1, w)) ** 2
         oh = abs(np.einsum("iqk,jqk,q->ij", h0.conj(), h1, w)) ** 2
         scores = np.minimum(oe, oh)
+        if not np.isfinite(scores).all():
+            raise ValueError("nonfinite overlap scores")
         rows, cols = linear_sum_assignment(-scores)
         for i, j in zip(rows, cols):
             other = np.r_[np.delete(scores[i], j), np.delete(scores[:, j], i)]
