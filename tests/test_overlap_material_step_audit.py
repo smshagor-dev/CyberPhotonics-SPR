@@ -1,5 +1,5 @@
 import numpy as np
-from overlap_material_step_audit import audit_overlap
+from research.overlap_material_step_audit import audit_overlap
 
 def sample(**changes):
     f = np.zeros((2, 3, 3), complex)
