@@ -152,3 +152,28 @@ def test_boolean_solver_count_rejected(tmp_path):
     data["solver_calls_completed"] = True
     path.write_text(json.dumps(data))
     assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_extra_csv_fields_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "raw_eigenmode_grid.csv"
+    lines = path.read_text().splitlines()
+    lines[1] += ",unexpected"
+    path.write_text("\n".join(lines) + "\n")
+    assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_missing_csv_column_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "raw_eigenmode_grid.csv"
+    lines = path.read_text().splitlines()
+    lines[0] = lines[0].replace("mode_index_native_untracked,", "")
+    path.write_text("\n".join(lines) + "\n")
+    assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_oversized_index_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "raw_eigenmode_grid.csv"
+    path.write_text(path.read_text().replace("0,0,0,", "0,0," + "9" * 5000 + ",", 1))
+    assert not audit(tmp_path)["integrity_verified"]
