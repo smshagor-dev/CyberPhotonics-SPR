@@ -9,10 +9,17 @@ def _normalized(fields, weights):
         raise ValueError("expected (modes, quadrature points, 3) vectors")
     if not np.isfinite(f).all():
         raise ValueError("nonfinite fields")
-    n = np.einsum("mqi,mqi,q->m", f.conj(), f, weights).real
-    if not np.isfinite(n).all() or np.any(n <= 0):
+    # Eigenvectors have arbitrary amplitude: normalize *before* squaring to
+    # prevent overflow at 1e200 and underflow at 1e-200. This is diagnostic
+    # numerical conditioning, not a physical Maxwell-mode qualification.
+    scale = np.max(np.abs(f), axis=(1, 2))
+    if not np.isfinite(scale).all() or np.any(scale <= 0):
         raise ValueError("zero field")
-    return f / np.sqrt(n)[:, None, None]
+    scaled = f / scale[:, None, None]
+    n = np.einsum("mqi,mqi,q->m", scaled.conj(), scaled, weights).real
+    if not np.isfinite(n).all() or np.any(n <= 0):
+        raise ValueError("invalid quadrature norm")
+    return scaled / np.sqrt(n)[:, None, None]
 
 
 def audit_overlap(e0, h0, e1, h1, weights, *, mesh0, mesh1,
