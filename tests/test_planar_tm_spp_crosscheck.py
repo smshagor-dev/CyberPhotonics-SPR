@@ -24,3 +24,12 @@ def test_planar_tm_complex_root_matches_closed_form(wavelength, ri):
 def test_invalid_interface_rejected(wavelength, ri, eps):
     with pytest.raises(ValueError):
         solve(wavelength, ri, eps)
+
+
+@pytest.mark.parametrize("wavelength", [0.75, 0.80, 0.85])
+@pytest.mark.parametrize("ri", [1.35, 1.36, 1.37])
+def test_independent_seeds_converge_to_same_root(wavelength, ri):
+    result = solve(wavelength, ri, complex(-24, 1.5))
+    assert result["independent_seed_count"] == 3
+    assert result["max_seed_relative_disagreement"] < 1e-8
+    assert result["root_solver_success"]
