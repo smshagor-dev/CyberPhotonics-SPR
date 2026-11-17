@@ -67,3 +67,27 @@ def test_duplicate_eigenmode_rejected(tmp_path):
 
 def test_missing_native_inputs_rejected(tmp_path):
     assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_malformed_manifest_types_fail_closed(tmp_path):
+    fixture(tmp_path)
+    p = tmp_path / "experiment_protocol.json"
+    p.write_text(json.dumps({"wavelengths_um": "bad", "analyte_ris": None, "num_modes": None}))
+    assert audit(tmp_path)["integrity_verified"] is False
+    fixture(tmp_path)
+    p = tmp_path / "GRID_READINESS.json"
+    data = json.loads(p.read_text())
+    data["artifacts_sha256"] = None
+    p.write_text(json.dumps(data))
+    assert audit(tmp_path)["integrity_verified"] is False
+
+
+def test_unsafe_publication_claim_fails_closed(tmp_path):
+    fixture(tmp_path)
+    p = tmp_path / "GRID_READINESS.json"
+    data = json.loads(p.read_text())
+    data["comsol_verified"] = True
+    p.write_text(json.dumps(data))
+    result = audit(tmp_path)
+    assert not result["integrity_verified"]
+    assert "unsafe publication or COMSOL claim" in result["errors"]
