@@ -1,5 +1,5 @@
 import unittest
-from spectral_grid_independence import validate_spectral_grids
+from research_validation.spectral_grid_independence import validate_spectral_grids
 
 def grid(n, lo=.7, hi=.9):
     return [lo+(hi-lo)*i/n for i in range(n+1)]
