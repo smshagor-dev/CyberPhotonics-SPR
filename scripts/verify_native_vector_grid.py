@@ -13,7 +13,14 @@ def audit(root):
         report = json.loads((root / "GRID_READINESS.json").read_text())
         protocol = json.loads((root / "experiment_protocol.json").read_text())
         with (root / "raw_eigenmode_grid.csv").open(newline="") as handle:
-            rows = list(csv.DictReader(handle))
+            reader = csv.DictReader(handle)
+            expected_columns = {"ri_index", "wavelength_index",
+                                "mode_index_native_untracked", "analyte_ri", "wavelength_um"}
+            if reader.fieldnames is None or not expected_columns.issubset(reader.fieldnames):
+                raise ValueError("missing CSV identity columns")
+            rows = list(reader)
+            if any(None in row or any(value is None for value in row.values()) for row in rows):
+                raise ValueError("malformed CSV row shape")
     except (OSError, ValueError, csv.Error) as exc:
         return {"integrity_verified": False, "physics_qualified": False,
                 "publication_ready": False, "comsol_verified": False,
@@ -45,7 +52,9 @@ def audit(root):
             if type(modes) is not int or modes < 1:
                 raise ValueError("invalid mode count")
             raw_indices = [row[x] for x in ("ri_index", "wavelength_index", "mode_index_native_untracked")]
-            if any(not isinstance(v, str) or not v.isascii() or not v.isdecimal() or str(int(v)) != v for v in raw_indices):
+            if any(not isinstance(v, str) or len(v) > 12 or not v.isascii()
+                   or not v.isdecimal() or (len(v) > 1 and v.startswith("0"))
+                   for v in raw_indices):
                 raise ValueError("noncanonical integer index")
             i, j, k = map(int, raw_indices)
             if not (0 <= i < len(ri) and 0 <= j < len(wl) and 0 <= k < modes):
