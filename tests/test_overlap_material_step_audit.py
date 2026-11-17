@@ -47,11 +47,23 @@ def test_small_finite_field_amplitude_is_not_arbitrarily_rejected():
     assert not r["physics_qualified"]
 
 
-def test_overflowed_quadrature_norm_fails_closed():
+def test_large_finite_eigenvector_scale_is_valid():
     f = np.zeros((2, 3, 3), complex)
     f[0, 0, 0] = 1e200
     f[1, 1, 1] = 1e200
     r = audit_overlap(f, f, f, f, np.ones(3),
                       mesh0="m", mesh1="m", geometry0="g", geometry1="g",
                       material0="a", material1="a")
-    assert not r["overlap_tracking_passed"]
+    assert r["overlap_tracking_passed"]
+    assert not r["physics_qualified"]
+
+def test_tiny_finite_eigenvector_scale_is_valid():
+    f = np.zeros((2, 3, 3), complex)
+    f[0, 0, 0] = 1e-200
+    f[1, 1, 1] = 1e-200
+    r = audit_overlap(f, f, f, f, np.ones(3),
+                      mesh0="m", mesh1="m", geometry0="g", geometry1="g",
+                      material0="a", material1="a")
+    assert r["overlap_tracking_passed"]
+    assert not r["mode_identity_verified"]
+    assert not r["publication_ready"]
