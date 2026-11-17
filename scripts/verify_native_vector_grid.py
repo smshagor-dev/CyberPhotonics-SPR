@@ -17,18 +17,27 @@ def audit(root):
         return {"integrity_verified": False, "physics_qualified": False,
                 "publication_ready": False, "comsol_verified": False,
                 "errors": [f"input: {exc}"]}
+    if not isinstance(protocol, dict) or not isinstance(report, dict):
+        return {"integrity_verified": False, "physics_qualified": False,
+                "publication_ready": False, "comsol_verified": False,
+                "errors": ["invalid JSON document shape"]}
     wl, ri = protocol.get("wavelengths_um", []), protocol.get("analyte_ris", [])
+    if not isinstance(wl, list) or not isinstance(ri, list):
+        wl, ri = [], []
+        errors.append("invalid protocol grid shape")
     modes = protocol.get("num_modes")
     expected = len(wl) * len(ri)
-    if not isinstance(modes, int) or modes < 1 or len(wl) < 2 or len(ri) < 2:
+    if type(modes) is not int or modes < 1 or len(wl) < 2 or len(ri) < 2:
         errors.append("invalid protocol dimensions")
     if report.get("solver_calls_completed") != expected or report.get("completed") is not True:
         errors.append("incomplete solver campaign")
-    if not isinstance(modes, int) or len(rows) != expected * modes:
+    if type(modes) is not int or modes < 1 or len(rows) != expected * modes:
         errors.append("wrong eigenmode row count")
     identities = set()
     for row in rows:
         try:
+            if type(modes) is not int or modes < 1:
+                raise ValueError("invalid mode count")
             i, j, k = (int(row[x]) for x in ("ri_index", "wavelength_index", "mode_index_native_untracked"))
             if not (0 <= i < len(ri) and 0 <= j < len(wl) and 0 <= k < modes):
                 raise ValueError("index out of range")
@@ -45,11 +54,16 @@ def audit(root):
     required.update(f"raw_vector_eh_ri{i}_wl{j}.npz"
                     for i in range(len(ri)) for j in range(len(wl)))
     digests = report.get("artifacts_sha256", {})
+    if not isinstance(digests, dict):
+        errors.append("invalid artifact digest mapping")
+        digests = {}
     for name in sorted(required):
         if name not in digests:
             errors.append(f"missing digest: {name}")
         elif not (root / name).is_file() or hashlib.sha256((root / name).read_bytes()).hexdigest() != digests[name]:
             errors.append(f"file absent or hash mismatch: {name}")
+    if any(report.get(flag) is True for flag in ("physics_qualified", "publication_ready", "comsol_verified")):
+        errors.append("unsafe publication or COMSOL claim")
     if report.get("scientific_submission_ready") is not False:
         errors.append("unsafe readiness flag")
     return {"integrity_verified": not errors, "physics_qualified": False,
