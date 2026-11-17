@@ -91,3 +91,39 @@ def test_unsafe_publication_claim_fails_closed(tmp_path):
     result = audit(tmp_path)
     assert not result["integrity_verified"]
     assert "unsafe publication or COMSOL claim" in result["errors"]
+
+
+def test_nonfinite_protocol_coordinate_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "experiment_protocol.json"
+    data = json.loads(path.read_text())
+    data["wavelengths_um"][0] = float("nan")
+    path.write_text(json.dumps(data))
+    assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_duplicate_protocol_coordinate_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "experiment_protocol.json"
+    data = json.loads(path.read_text())
+    data["analyte_ris"][1] = data["analyte_ris"][0]
+    path.write_text(json.dumps(data))
+    assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_symlinked_native_artifact_rejected(tmp_path):
+    fixture(tmp_path)
+    source = tmp_path / "raw_vector_eh_ri0_wl0.npz"
+    target = tmp_path / "other.npz"
+    target.write_bytes(source.read_bytes())
+    source.unlink()
+    source.symlink_to(target)
+    assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_noncanonical_mode_index_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "raw_eigenmode_grid.csv"
+    text = path.read_text()
+    path.write_text(text.replace("0,0,0,", "0,0,0.0,", 1))
+    assert not audit(tmp_path)["integrity_verified"]
