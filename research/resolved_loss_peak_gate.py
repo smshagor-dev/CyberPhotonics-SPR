@@ -24,6 +24,8 @@ def analyze(wavelength_um, loss_db_cm, *, max_step_um, min_samples_per_width=5):
     k=max(range(len(z)),key=z.__getitem__)
     if k==0 or k==len(z)-1 or z[k]<=0:
         raise ValueError("no positive interior peak")
+    if z[k]<=z[k-1] or z[k]<=z[k+1]:
+        raise ValueError("flat or non-isolated peak")
     half=z[k]/2
     left=next((i for i in range(k-1,-1,-1) if z[i]<=half),None)
     right=next((i for i in range(k,len(z)-1) if z[i+1]<=half),None)
@@ -37,7 +39,18 @@ def analyze(wavelength_um, loss_db_cm, *, max_step_um, min_samples_per_width=5):
     for i in range(1,len(z)-1):
         if (i<left or i>right+1) and z[i]>z[i-1] and z[i]>=z[i+1] and z[i]>=half:
             raise ValueError("ambiguous multiple peaks")
-    return Peak(x[k],width,z[k])
+    # Three-point quadratic vertex on the actual (possibly nonuniform) grid.
+    # This is sub-grid interpolation, not a claim of spectral convergence.
+    l=x[k-1]-x[k]; r=x[k+1]-x[k]
+    sl=(z[k-1]-z[k])/l; sr=(z[k+1]-z[k])/r
+    curvature=(sr-sl)/(r-l)
+    if not math.isfinite(curvature) or curvature>=0:
+        raise ValueError("unresolved peak curvature")
+    slope=sl-curvature*l
+    offset=-slope/(2*curvature)
+    if not math.isfinite(offset) or not l<=offset<=r:
+        raise ValueError("peak vertex outside adjacent samples")
+    return Peak(x[k]+offset,width,z[k]-slope*slope/(4*curvature))
 
 def sensitivity_nm_per_riu(a,b,ri_a,ri_b):
     if not all(map(math.isfinite,(ri_a,ri_b))) or ri_a==ri_b:
