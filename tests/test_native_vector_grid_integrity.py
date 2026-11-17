@@ -127,3 +127,28 @@ def test_noncanonical_mode_index_rejected(tmp_path):
     text = path.read_text()
     path.write_text(text.replace("0,0,0,", "0,0,0.0,", 1))
     assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_numeric_equivalent_grid_coordinates_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "experiment_protocol.json"
+    data = json.loads(path.read_text())
+    data["wavelengths_um"] = [1, 1.0]
+    path.write_text(json.dumps(data))
+    assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_noncanonical_leading_zero_index_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "raw_eigenmode_grid.csv"
+    path.write_text(path.read_text().replace("0,0,0,", "00,0,0,", 1))
+    assert not audit(tmp_path)["integrity_verified"]
+
+
+def test_boolean_solver_count_rejected(tmp_path):
+    fixture(tmp_path)
+    path = tmp_path / "GRID_READINESS.json"
+    data = json.loads(path.read_text())
+    data["solver_calls_completed"] = True
+    path.write_text(json.dumps(data))
+    assert not audit(tmp_path)["integrity_verified"]
