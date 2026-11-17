@@ -23,16 +23,32 @@ def solve(wavelength_um, analyte_ri, gold_epsilon):
         f = decay(beta, dielectric)/dielectric + decay(beta, gold_epsilon)/gold_epsilon
         return [f.real, f.imag]
 
-    result = root(residual, [analytic.real*1.001, analytic.imag*1.001], tol=1e-12)
-    numerical = complex(*result.x)
-    norm = abs(complex(*residual(result.x)))
+    # Numerical seeds depend only on the dielectric light line, not the closed form.
+    seeds = [k0 * analyte_ri * complex(a, b) for a, b in
+             ((1.02, 0.001), (1.05, 0.01), (1.10, 0.02))]
+    candidates = [root(residual, [seed.real, seed.imag], tol=1e-12)
+                  for seed in seeds]
+    admissible = [(complex(*candidate.x), abs(complex(*residual(candidate.x))))
+                  for candidate in candidates
+                  if all(__import__("math").isfinite(v) for v in candidate.x)]
+    admissible = [(beta, err) for beta, err in admissible
+                  if beta.real > 0 and beta.imag > 0 and err < 1e-8]
+    if len(admissible) != len(seeds):
+        raise RuntimeError("independent TM root failed to converge")
+    numerical, norm = min(admissible, key=lambda pair: pair[1])
+    max_seed_disagreement = max(abs(beta - numerical) / abs(numerical)
+                                for beta, _ in admissible)
+    if max_seed_disagreement > 1e-8:
+        raise RuntimeError("independent TM roots disagree")
     error = abs(numerical-analytic)/abs(analytic)
     return dict(wavelength_um=wavelength_um, analyte_ri=analyte_ri,
                 epsilon_gold=[gold_epsilon.real, gold_epsilon.imag],
                 beta_analytic_per_um=[analytic.real, analytic.imag],
                 beta_numeric_per_um=[numerical.real, numerical.imag],
                 relative_beta_error=error, tm_boundary_residual=norm,
-                root_solver_success=bool(result.success or norm < 1e-10),
+                root_solver_success=bool(norm < 1e-10),
+                independent_seed_count=len(seeds),
+                max_seed_relative_disagreement=max_seed_disagreement,
                 planar_crosscheck_passed=bool(error < 1e-8 and norm < 1e-8 and numerical.imag > 0),
                 source_type="illustrative_planar_tm_crosscheck_not_pcf",
                 physics_qualified=False, publication_ready=False, comsol_verified=False)
