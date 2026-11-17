@@ -35,3 +35,23 @@ def test_geometry_mismatch_fails():
 
 def test_invalid_threshold_fails():
     assert not sample(ri0=1.35, ri1=1.36, min_overlap=-1)["overlap_tracking_passed"]
+
+def test_small_finite_field_amplitude_is_not_arbitrarily_rejected():
+    f = np.zeros((2, 3, 3), complex)
+    f[0, 0, 0] = 1e-10
+    f[1, 1, 1] = 1e-10
+    r = audit_overlap(f, f, f, f, np.ones(3),
+                      mesh0="m", mesh1="m", geometry0="g", geometry1="g",
+                      material0="a", material1="a")
+    assert r["overlap_tracking_passed"]
+    assert not r["physics_qualified"]
+
+
+def test_overflowed_quadrature_norm_fails_closed():
+    f = np.zeros((2, 3, 3), complex)
+    f[0, 0, 0] = 1e200
+    f[1, 1, 1] = 1e200
+    r = audit_overlap(f, f, f, f, np.ones(3),
+                      mesh0="m", mesh1="m", geometry0="g", geometry1="g",
+                      material0="a", material1="a")
+    assert not r["overlap_tracking_passed"]
