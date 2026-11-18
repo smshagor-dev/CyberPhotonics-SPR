@@ -48,10 +48,10 @@ def test_bidirectional_overlap_margin_flags_ambiguous_global_assignment() -> Non
     # Global optimum chooses (0,1),(1,0), but candidate 1 has a
     # stronger competing previous mode 1; the reverse margin is negative.
     a[0].calculate_overlap.side_effect = [0.70 + 0j, 0.60 + 0j]
-    a[1].calculate_overlap.side_effect = [0.90 + 0j, 0.80 + 0j]
+    a[1].calculate_overlap.side_effect = [0.95 + 0j, 0.80 + 0j]
     matches = matched_vector_overlaps(a, b)
-    assert matches[0]["current_mode_index"] == 0
-    assert matches[1]["current_mode_index"] == 1
+    assert matches[0]["current_mode_index"] == 1
+    assert matches[1]["current_mode_index"] == 0
     assert matches[0]["reverse_overlap_margin"] == pytest.approx(-0.20)
     assert matches[0]["assignment_ambiguous_nonpositive_margin"] is True
     assert all(row["mode_identity_physically_verified"] is False for row in matches)
