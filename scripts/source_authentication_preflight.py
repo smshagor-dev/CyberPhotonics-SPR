@@ -4,6 +4,9 @@ import json
 import math
 
 def audit(manifest):
+    if not isinstance(manifest, dict):
+        return dict(physics_qualified=False, publication_ready=False, comsol_verified=False,
+                    reasons=["invalid_manifest_type"], manifest_sha256=None)
     failures = []
     required = ("geometry_source", "geometry_sha256", "au_source", "au_data_sha256",
                 "solver", "solver_version", "mesh_sha256", "pml_spec",
@@ -36,7 +39,7 @@ def audit(manifest):
         if spectrum.get("mesh_sha256") != manifest.get("mesh_sha256"):
             failures.append(f"mesh_changed:{i}")
         ri = spectrum.get("analyte_ri")
-        if not isinstance(ri, (int, float)) or not math.isfinite(ri) or ri in seen_ri:
+        if type(ri) not in (int, float) or not math.isfinite(ri) or ri in seen_ri:
             failures.append(f"invalid_ri:{i}")
         else:
             seen_ri.add(ri)
@@ -50,12 +53,17 @@ def audit(manifest):
                 failures.append(f"invalid_point:{i}:{j}")
                 continue
             w, loss = point.get("wavelength_um"), point.get("loss_db_cm")
-            if (not isinstance(w, (int, float)) or not math.isfinite(w) or w <= last
-                or not isinstance(loss, (int, float)) or not math.isfinite(loss) or loss < 0):
+            if (type(w) not in (int, float) or not math.isfinite(w) or w <= 0 or w <= last
+                or type(loss) not in (int, float) or not math.isfinite(loss) or loss < 0):
                 failures.append(f"invalid_point:{i}:{j}")
             else:
                 last = w
     failures.append("independent_external_authentication_required")
-    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    try:
+        canonical = json.dumps(manifest, sort_keys=True, allow_nan=False)
+        digest = hashlib.sha256(canonical.encode()).hexdigest()
+    except (TypeError, ValueError, OverflowError):
+        failures.append("manifest_not_canonical_json")
+        digest = None
     return dict(physics_qualified=False, publication_ready=False, comsol_verified=False,
                 reasons=sorted(set(failures)), manifest_sha256=digest)
