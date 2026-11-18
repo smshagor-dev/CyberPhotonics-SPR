@@ -55,15 +55,28 @@ def matched_vector_overlaps(reference: Any, candidate: Any) -> list[dict[str, fl
                 raise ValueError("complex vector-field overlap is nonfinite")
             matrix[i, j] = abs(val)
     a, b = linear_sum_assignment(-matrix)
-    return [{
-        "previous_mode_index": int(i),
-        "current_mode_index": int(j),
-        "vector_eh_poynting_overlap_abs": float(matrix[i, j]),
-        "unselected_overlap_abs": float(max(
-            (matrix[i, k] for k in range(len(candidate)) if k != j), default=0.0,
-        )),
-        "mode_identity_physically_verified": False,
-    } for i, j in zip(a, b)]
+    matches = []
+    for i, j in zip(a, b):
+        selected = float(matrix[i, j])
+        row_rival = float(max((matrix[i, k] for k in range(len(candidate)) if k != j), default=0.0))
+        col_rival = float(max((matrix[k, j] for k in range(len(reference)) if k != i), default=0.0))
+        # Assignment is global; a selected edge need not be the strongest in
+        # either direction. Negative margins expose this ambiguity explicitly.
+        matches.append({
+            "previous_mode_index": int(i),
+            "current_mode_index": int(j),
+            "vector_eh_poynting_overlap_abs": selected,
+            "unselected_overlap_abs": row_rival,
+            "reverse_competing_overlap_abs": col_rival,
+            "forward_overlap_margin": selected - row_rival,
+            "reverse_overlap_margin": selected - col_rival,
+            "bidirectional_min_overlap_margin": min(selected - row_rival, selected - col_rival),
+            "assignment_ambiguous_nonpositive_margin": (
+                selected <= row_rival or selected <= col_rival
+            ),
+            "mode_identity_physically_verified": False,
+        })
+    return matches
 
 
 def _sha256(path: Path) -> str:
@@ -204,6 +217,12 @@ def run_vector_grid(
                         "analyte_ri": analyte_ri, "wavelength_um": wavelength_um,
                         "mode_index_native_untracked": mode_index,
                         "n_eff_real": neff.real, "n_eff_imag": neff.imag,
+                        # Diagnostic only: no PML, no validated confinement loss.
+                        # 8.686 * (2*pi/lambda_um) * Im(neff) * 1e4 dB/cm.
+                        "raw_attenuation_db_per_cm_unqualified": (
+                            8.685889638065037 * 2.0 * math.pi
+                            * neff.imag / wavelength_um * 1.0e4
+                        ),
                         "gold_epsilon_real": metal.real, "gold_epsilon_imag": metal.imag,
                         "silica_ri": silica,
                         "mesh_elements": mesh.nelements,
@@ -234,6 +253,14 @@ def run_vector_grid(
         overlaps_path.write_text(json.dumps(overlaps, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         report["raw_eigenmode_rows"] = len(rows)
         report["vector_overlap_matched_edges"] = len(overlaps)
+        report["ambiguous_overlap_edges"] = sum(
+            bool(edge["assignment_ambiguous_nonpositive_margin"]) for edge in overlaps
+        )
+        report["all_overlap_edges_bidirectionally_unambiguous"] = (
+            report["ambiguous_overlap_edges"] == 0
+        )
+        # Neither an unambiguous assignment nor an attenuation calculation
+        # establishes physical core/SPP identity or PML convergence.
         for path in [mesh_path, geometry_path, freeze, records_path, overlaps_path]:
             report["artifacts_sha256"][path.name] = _sha256(path)
         report["completed"] = True
