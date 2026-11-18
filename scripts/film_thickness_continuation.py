@@ -4,7 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 import numpy as np
-from planar_three_layer_tm import solve
+try:
+    from .planar_three_layer_tm import solve
+except ImportError:
+    from planar_three_layer_tm import solve
 
 def campaign(thicknesses=(.05, .075, .1, .15, .2, .3, .5), wavelength=.8,
              dielectric=1.77, metal=-24+1.5j):
