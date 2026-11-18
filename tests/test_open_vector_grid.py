@@ -41,3 +41,26 @@ def test_vector_overlap_rejects_bad_modes() -> None:
     mode.calculate_overlap.return_value = complex(float("nan"), 0)
     with pytest.raises(ValueError, match="nonfinite"):
         matched_vector_overlaps([mode], [mode])
+
+
+def test_bidirectional_overlap_margin_flags_ambiguous_global_assignment() -> None:
+    a, b = [MagicMock(), MagicMock()], [MagicMock(), MagicMock()]
+    # Global optimum chooses (0,1),(1,0), but candidate 1 has a
+    # stronger competing previous mode 1; the reverse margin is negative.
+    a[0].calculate_overlap.side_effect = [0.70 + 0j, 0.60 + 0j]
+    a[1].calculate_overlap.side_effect = [0.90 + 0j, 0.80 + 0j]
+    matches = matched_vector_overlaps(a, b)
+    assert matches[0]["current_mode_index"] == 0
+    assert matches[1]["current_mode_index"] == 1
+    assert matches[0]["reverse_overlap_margin"] == pytest.approx(-0.20)
+    assert matches[0]["assignment_ambiguous_nonpositive_margin"] is True
+    assert all(row["mode_identity_physically_verified"] is False for row in matches)
+
+
+def test_bidirectional_overlap_margin_unambiguous_swap() -> None:
+    a, b = [MagicMock(), MagicMock()], [MagicMock(), MagicMock()]
+    a[0].calculate_overlap.side_effect = [0.10 + 0j, 0.95 + 0j]
+    a[1].calculate_overlap.side_effect = [0.92 + 0j, 0.05 + 0j]
+    matches = matched_vector_overlaps(a, b)
+    assert all(row["bidirectional_min_overlap_margin"] > 0 for row in matches)
+    assert all(not row["assignment_ambiguous_nonpositive_margin"] for row in matches)
