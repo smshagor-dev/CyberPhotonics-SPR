@@ -60,3 +60,19 @@ def test_bool_size(tmp_path):
     m["artifacts"][0]["bytes"] = True
     p.write_text(json.dumps(m))
     assert not audit(p, r)["integrity_verified"]
+
+
+def test_intermediate_symlink_inside_root(tmp_path):
+    p, r, m = make(tmp_path)
+    actual = r / "real"
+    actual.mkdir()
+    (actual / "field.bin").write_bytes(b"native bytes")
+    (r / "alias").symlink_to(actual, target_is_directory=True)
+    m["artifacts"][0]["path"] = "alias/field.bin"
+    p.write_text(json.dumps(m))
+    assert not audit(p, r)["integrity_verified"]
+
+
+def test_missing_artifact_root(tmp_path):
+    p, r, _ = make(tmp_path)
+    assert not audit(p, r / "missing")["integrity_verified"]
