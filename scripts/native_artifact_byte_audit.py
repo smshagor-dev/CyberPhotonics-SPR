@@ -5,8 +5,12 @@ from pathlib import Path
 
 
 def audit(manifest_path, root):
-    root = Path(root).resolve(strict=True)
     errors = []
+    if not Path(root).is_dir():
+        return {"integrity_verified": False, "physics_qualified": False,
+                "publication_ready": False, "comsol_verified": False,
+                "errors": ["artifact root is not a directory"]}
+    root = Path(root).resolve(strict=True)
     try:
         manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
