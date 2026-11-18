@@ -1,0 +1,27 @@
+name: Measured Au planar Maxwell reference
+on:
+  pull_request:
+    paths:
+      - 'scripts/measured_au_planar_spp_reference.py'
+      - 'tests/test_measured_au_planar_spp_reference.py'
+      - '.github/workflows/measured-au-planar-reference.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  measured-au-planar-control:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy pytest
+      - run: PYTHONPATH=src:. python -m pytest -q tests/test_measured_au_planar_spp_reference.py
+      - run: PYTHONPATH=src:. python -m scripts.measured_au_planar_spp_reference --output native-controls/measured_au_planar_41.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: measured-au-planar-control
+          path: native-controls/
+          if-no-files-found: warn
