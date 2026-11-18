@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def audit(manifest_path, root):
-    root = Path(root).resolve()
+    root = Path(root).resolve(strict=True)
     errors = []
     try:
         manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
@@ -41,7 +41,11 @@ def audit(manifest_path, root):
             errors.append(f"invalid byte count: {name}")
             continue
         path = root / name
-        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(root):
+        # A symlinked ancestor can redirect a file while the final leaf is regular.
+        # Reject all symlink hops, even those resolving back inside the root.
+        if (any(part.is_symlink() for part in (root / name).parents if part != root and root in part.parents)
+                or path.is_symlink() or not path.is_file()
+                or not path.resolve().is_relative_to(root)):
             errors.append(f"absent or unsafe file: {name}")
             continue
         h = hashlib.sha256()
