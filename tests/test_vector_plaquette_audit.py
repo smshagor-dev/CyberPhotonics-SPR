@@ -78,3 +78,25 @@ def test_single_neighbor_mode_collapse_rejected():
     result = audit(records)
     assert not result["graph_consistent"]
     assert any("nonbijective mode assignment" in error for error in result["errors"])
+
+
+def test_fractional_mode_index_rejected_without_truncation():
+    records = edges()
+    records[0]["previous_mode_index"] = 0.5
+    result = audit(records)
+    assert not result["graph_consistent"]
+    assert any("native integers" in error for error in result["errors"])
+
+
+def test_boolean_grid_index_rejected():
+    records = edges()
+    records[0]["ri_index"] = True
+    result = audit(records)
+    assert not result["graph_consistent"]
+    assert any("native integers" in error for error in result["errors"])
+
+
+def test_fractional_grid_dimensions_rejected():
+    import pytest
+    with pytest.raises(ValueError, match="native integers"):
+        audit_mode_plaquettes(edges(), n_ri=2.5, n_wavelength=2, n_modes=2)
