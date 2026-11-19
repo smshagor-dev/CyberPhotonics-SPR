@@ -103,6 +103,10 @@ def run_vector_grid(
     if not math.isfinite(gold_mesh_resolution_um) or not 0.005 <= gold_mesh_resolution_um <= 0.03:
         raise ValueError("invalid exploratory Au mesh step")
     out = Path(out)
+    # A rerun must never silently replace native meshes, E/H coefficients or
+    # provenance. Reject populated destinations BEFORE any solver side effects.
+    if out.exists() and (not out.is_dir() or any(out.iterdir())):
+        raise FileExistsError(f"native FEM output destination is not empty: {out}")
     out.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {
         "schema_version": 1,
