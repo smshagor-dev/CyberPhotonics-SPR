@@ -8,7 +8,16 @@ from __future__ import annotations
 import math
 
 
+def _index(value: object) -> int:
+    """Reject lossy numeric coercions and booleans in native artifact indices."""
+    if type(value) is not int:
+        raise ValueError("mode/grid indices must be native integers")
+    return value
+
+
 def audit_mode_plaquettes(edges, *, n_ri: int, n_wavelength: int, n_modes: int) -> dict:
+    if any(type(v) is not int for v in (n_ri, n_wavelength, n_modes)):
+        raise ValueError("grid dimensions must be native integers")
     if min(n_ri, n_wavelength, n_modes) < 2:
         raise ValueError("two RI, wavelength and mode samples required")
     directed = {}
@@ -17,16 +26,16 @@ def audit_mode_plaquettes(edges, *, n_ri: int, n_wavelength: int, n_modes: int) 
         try:
             axis = edge["varying"]
             if axis == "wavelength":
-                src = (int(edge["ri_index"]), int(edge["previous_wl_index"]))
-                dst = (int(edge["ri_index"]), int(edge["current_wl_index"]))
+                src = (_index(edge["ri_index"]), _index(edge["previous_wl_index"]))
+                dst = (_index(edge["ri_index"]), _index(edge["current_wl_index"]))
                 valid = src[0] == dst[0] and dst[1] == src[1] + 1
             elif axis == "analyte_ri":
-                src = (int(edge["previous_ri_index"]), int(edge["wavelength_index"]))
-                dst = (int(edge["current_ri_index"]), int(edge["wavelength_index"]))
+                src = (_index(edge["previous_ri_index"]), _index(edge["wavelength_index"]))
+                dst = (_index(edge["current_ri_index"]), _index(edge["wavelength_index"]))
                 valid = src[1] == dst[1] and dst[0] == src[0] + 1
             else:
                 raise ValueError("unknown edge axis")
-            a, b = int(edge["previous_mode_index"]), int(edge["current_mode_index"])
+            a, b = _index(edge["previous_mode_index"]), _index(edge["current_mode_index"])
             margin = float(edge["bidirectional_min_overlap_margin"])
             overlap = float(edge["vector_eh_poynting_overlap_abs"])
             if not (valid and 0 <= src[0] < n_ri and 0 <= dst[0] < n_ri
