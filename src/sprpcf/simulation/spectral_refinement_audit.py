@@ -47,7 +47,7 @@ def _metrics(row):
     left = crossing((j,j+1) for j in range(i-1,-1,-1))
     right = crossing((j,j+1) for j in range(i,len(xs)-1))
     return {"peak_nm":vertex,"sample_peak_nm":xs[i],"interpolated_peak_loss_db_cm":peak_height,
-            "fwhm_nm":right-left,
+            "fwhm_nm":right-left,\n            "width_definition":"half-prominence above max endpoint baseline (not zero-baseline FWHM)",
             "max_step_nm":max(b-a for a,b in zip(xs,xs[1:]))}
 
 def audit_spectral_refinement(records, *, peak_tol_nm, fwhm_relative_tol):
@@ -62,6 +62,7 @@ def audit_spectral_refinement(records, *, peak_tol_nm, fwhm_relative_tol):
         raise ValueError("invalid audit protocol")
     keys = ("geometry_sha256","material_sha256","mode_branch_id","ri","pml_sha256","solver_name")
     identity = None
+    reference_window = None
     metrics = []
     for row in records:
         if any(k not in row or row[k] is None or row[k] == "" for k in keys):
@@ -71,7 +72,7 @@ def audit_spectral_refinement(records, *, peak_tol_nm, fwhm_relative_tol):
         if identity is not None and ident != identity:
             raise ValueError("fixed-configuration/mode mismatch")
         identity = ident
-        metrics.append(_metrics(row))
+        # A narrowed or shifted spectral window can suppress half-height tails\n        # and manufacture apparent refinement stability. Require identical\n        # physical wavelength endpoints, independent of interior sampling.\n        wavelengths = row["wavelength_nm"]\n        window = (_number(wavelengths[0]), _number(wavelengths[-1]))\n        if reference_window is not None and any(\n            abs(x - y) > 1e-9 for x, y in zip(window, reference_window)\n        ):\n            raise ValueError("spectral refinement wavelength window changed")\n        reference_window = window\n        metrics.append(_metrics(row))
     if any(b["max_step_nm"] >= a["max_step_nm"] for a,b in zip(metrics,metrics[1:])):
         raise ValueError("grid not strictly refined")
     a,b = metrics[-2:]
