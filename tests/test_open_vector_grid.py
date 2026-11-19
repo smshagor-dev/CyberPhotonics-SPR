@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sprpcf.simulation.open_vector_grid import matched_vector_overlaps, preflight_grid
+from sprpcf.simulation.open_vector_grid import matched_vector_overlaps, preflight_grid, run_vector_grid
 
 
 def test_grid_preflight_rejects_duplicated_or_invalid_optical_inputs() -> None:
@@ -64,3 +64,22 @@ def test_bidirectional_overlap_margin_unambiguous_swap() -> None:
     matches = matched_vector_overlaps(a, b)
     assert all(row["bidirectional_min_overlap_margin"] > 0 for row in matches)
     assert all(not row["assignment_ambiguous_nonpositive_margin"] for row in matches)
+
+
+def test_native_output_directory_is_immutable_before_solver_import(tmp_path: Path) -> None:
+    destination = tmp_path / "native"
+    destination.mkdir()
+    sentinel = destination / "raw_vector_eh_ri0_wl0.npz"
+    sentinel.write_bytes(b"original-eigenfield-evidence")
+    with pytest.raises(FileExistsError, match="not empty"):
+        run_vector_grid(destination)
+    assert sentinel.read_bytes() == b"original-eigenfield-evidence"
+    assert sorted(p.name for p in destination.iterdir()) == [sentinel.name]
+
+
+def test_native_output_rejects_file_destination(tmp_path: Path) -> None:
+    destination = tmp_path / "native"
+    destination.write_text("immutable", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="not empty"):
+        run_vector_grid(destination)
+    assert destination.read_text(encoding="utf-8") == "immutable"
