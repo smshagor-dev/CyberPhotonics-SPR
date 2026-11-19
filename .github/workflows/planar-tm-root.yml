@@ -1,0 +1,23 @@
+name: Planar TM numerical reference (software-only)
+on:
+  pull_request:
+    paths:
+      - 'scripts/planar_tm_root_audit.py'
+      - 'tests/test_planar_tm_root_audit.py'
+      - '.github/workflows/planar-tm-root.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  numerical-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute committed planar Maxwell boundary tests
+        run: python -m unittest discover -s tests -p 'test_planar_tm_root_audit.py' -v
+      - name: Compile implementation
+        run: python -m py_compile scripts/planar_tm_root_audit.py
