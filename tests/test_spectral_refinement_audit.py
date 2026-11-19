@@ -74,3 +74,19 @@ def test_fwhm_uses_interpolated_peak_prominence():
     assert abs(metrics["interpolated_peak_loss_db_cm"]-20) < 1e-10
     assert abs(metrics["fwhm_nm"]-exact_width) < 0.03
     assert metrics["sample_peak_nm"] != metrics["peak_nm"]
+
+
+def test_shifted_or_narrowed_wavelength_window_rejected():
+    # Same nominal mode/geometry, but changed endpoints alter the baseline
+    # and can manufacture stable-looking half-prominence widths.
+    shifted = spectrum(1)
+    shifted["wavelength_nm"] = shifted["wavelength_nm"][5:-5]
+    shifted["loss_db_cm"] = shifted["loss_db_cm"][5:-5]
+    with pytest.raises(ValueError, match="wavelength window changed"):
+        run([spectrum(5), spectrum(2), shifted])
+
+
+def test_width_definition_does_not_claim_zero_baseline_fwhm():
+    metrics = run([spectrum(5), spectrum(2), spectrum(1)])["spectra"][-1]
+    assert "half-prominence" in metrics["width_definition"]
+    assert "not zero-baseline FWHM" in metrics["width_definition"]
