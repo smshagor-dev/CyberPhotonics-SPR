@@ -51,20 +51,24 @@ def audit_grid(root):
         au_source = protocol.get("Au")
         if au_source == "Johnson_Christy_1972_measured_bulk_reference":
             from sprpcf.simulation.materials_reference import au_reference_manifest
-            expected_measured = True
+            expected_reference_selected = True
             if protocol.get("Au_source_manifest") != au_reference_manifest():
                 errors.append("measured Au manifest does not match pinned source")
             if report.get("Au_material_reference_only_not_sensor_film_measurement") is not True:
                 errors.append("measured bulk Au must not be labeled sensor-film measurement")
         elif au_source == "repository_Rakic_style_fitted_model_not_measured_constants":
-            expected_measured = False
+            expected_reference_selected = False
             if protocol.get("Au_source_manifest") is not None:
                 errors.append("fitted gold must not carry measured Au reference")
         else:
             errors.append("unknown or missing Au material source")
-            expected_measured = False
-        if report.get("Au_material_measured_data_provenance_verified") is not expected_measured:
-            errors.append("Au source/provenance flag mismatch")
+            expected_reference_selected = False
+        if report.get("Au_reference_dataset_selected") is not expected_reference_selected:
+            errors.append("Au reference-selection flag mismatch")
+        if report.get("Au_material_measured_data_provenance_verified") is not False:
+            errors.append("unverified Au source must not claim verified provenance")
+        if report.get("Au_reference_transcription_independently_verified") is not False:
+            errors.append("independent Au transcription verification must remain false")
         ris, wavelengths, modes = protocol["analyte_ris"], protocol["wavelengths_um"], protocol["num_modes"]
         expected = {(i, j, k) for i in range(len(ris)) for j in range(len(wavelengths)) for k in range(modes)}
         with (root / "raw_eigenmode_grid.csv").open(newline="") as handle:
