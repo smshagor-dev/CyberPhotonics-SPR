@@ -31,8 +31,14 @@ def _metrics(row):
     vertex = -linear/(2*curvature)
     if not math.isfinite(vertex) or not (x0 <= vertex <= x2):
         raise ValueError("unbracketed quadratic peak vertex")
+    # FWHM must use the same interpolated peak height as the reported
+    # sub-grid peak position. A sampled-bin height biases half-prominence
+    # crossings, especially on coarser or offset spectral grids.
+    peak_height = y1 - curvature*(x1-vertex)**2
     baseline = max(ys[0],ys[-1])
-    half = baseline + (ys[i]-baseline)/2
+    if not math.isfinite(peak_height) or peak_height <= baseline:
+        raise ValueError("unresolved interpolated peak prominence")
+    half = baseline + (peak_height-baseline)/2
     def crossing(indices):
         for j,k in indices:
             if (ys[j]-half)*(ys[k]-half) <= 0 and ys[j] != ys[k]:
@@ -40,7 +46,8 @@ def _metrics(row):
         raise ValueError("unbracketed half-prominence")
     left = crossing((j,j+1) for j in range(i-1,-1,-1))
     right = crossing((j,j+1) for j in range(i,len(xs)-1))
-    return {"peak_nm":vertex,"sample_peak_nm":xs[i],"fwhm_nm":right-left,
+    return {"peak_nm":vertex,"sample_peak_nm":xs[i],"interpolated_peak_loss_db_cm":peak_height,
+            "fwhm_nm":right-left,
             "max_step_nm":max(b-a for a,b in zip(xs,xs[1:]))}
 
 def audit_spectral_refinement(records, *, peak_tol_nm, fwhm_relative_tol):
