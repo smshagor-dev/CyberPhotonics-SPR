@@ -61,3 +61,39 @@ def test_missing_native_protocol_rejected(tmp_path):
     fixture(tmp_path)
     (tmp_path / "experiment_protocol.json").unlink()
     assert not load_runner().audit_native_grid(tmp_path)["graph_consistent"]
+
+
+def rewrite_protocol(root, **updates):
+    path = root / "experiment_protocol.json"
+    data = json.loads(path.read_text())
+    data.update(updates)
+    path.write_text(json.dumps(data))
+    readiness = root / "GRID_READINESS.json"
+    manifest = json.loads(readiness.read_text())
+    manifest["artifacts_sha256"][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    readiness.write_text(json.dumps(manifest))
+
+
+def test_duplicate_or_reversed_native_grid_rejected(tmp_path):
+    fixture(tmp_path)
+    rewrite_protocol(tmp_path, wavelengths_um=[0.8, 0.8])
+    result = load_runner().audit_native_grid(tmp_path)
+    assert not result["graph_consistent"]
+    assert any("non-increasing" in error for error in result["errors"])
+
+
+def test_nonfinite_native_ri_grid_rejected(tmp_path):
+    fixture(tmp_path)
+    rewrite_protocol(tmp_path, analyte_ris=[1.35, float("nan")])
+    result = load_runner().audit_native_grid(tmp_path)
+    assert not result["graph_consistent"]
+    assert any("non-finite" in error for error in result["errors"])
+
+
+def test_native_input_digests_bound_to_successful_report(tmp_path):
+    fixture(tmp_path)
+    result = load_runner().audit_native_grid(tmp_path)
+    assert result["graph_consistent"]
+    assert result["native_input_sha256"]["GRID_READINESS.json"] == hashlib.sha256(
+        (tmp_path / "GRID_READINESS.json").read_bytes()
+    ).hexdigest()
