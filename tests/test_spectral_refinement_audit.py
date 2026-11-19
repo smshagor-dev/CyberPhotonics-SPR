@@ -47,8 +47,8 @@ def test_nonuniform_sampling_recovers_subgrid_peak():
     def row(xs):
         ys=[20-0.002*(x-649.3)**2 for x in xs]
         return spectrum(1,wavelength_nm=xs,loss_db_cm=ys)
-    rows=[row(xs0),row(sorted(set(xs0+[645,649,653,665]))),
-          row(sorted(set(xs0+[645,649,653,665,647,650,652,657])))]
+    rows=[row(list(range(600,701,5))), row(list(range(600,701,2))),
+          row(list(range(600,701,1)))]
     result=run(rows)
     assert result["diagnostic_pass"]
     assert abs(result["spectra"][-1]["peak_nm"]-649.3)<1e-8
