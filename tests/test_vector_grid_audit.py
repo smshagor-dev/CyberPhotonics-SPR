@@ -120,3 +120,47 @@ def test_reference_au_passes_integrity_without_promoting_sensor_physics(tmp_path
     report["artifacts_sha256"][file.name] = hashlib.sha256(file.read_bytes()).hexdigest()
     manifest.write_text(json.dumps(report))
     assert "measured Au manifest does not match pinned source" in audit_grid(tmp_path)["errors"]
+
+
+def test_archive_manifest_rejects_untracked_files_and_symlinks(tmp_path):
+    """Software-only integrity fixtures: no FEM or physics evidence."""
+    import hashlib
+    import json
+
+    from sprpcf.simulation.vector_grid_audit import audit_grid
+
+    (tmp_path / "untracked.bin").write_bytes(b"unexpected")
+    report = {"artifacts_sha256": {}}
+    (tmp_path / "GRID_READINESS.json").write_text(json.dumps(report))
+    assert "artifact inventory differs from manifest" in audit_grid(tmp_path)["errors"]
+
+    target = tmp_path / "outside.bin"
+    target.write_bytes(b"external")
+    (tmp_path / "linked.bin").symlink_to(target)
+    report["artifacts_sha256"] = {
+        "untracked.bin": hashlib.sha256(b"unexpected").hexdigest(),
+        "linked.bin": hashlib.sha256(b"external").hexdigest(),
+    }
+    (tmp_path / "GRID_READINESS.json").write_text(json.dumps(report))
+    assert "nonregular artifact: linked.bin" in audit_grid(tmp_path)["errors"]
+
+    (tmp_path / "linked.bin").unlink()
+    report["artifacts_sha256"].pop("linked.bin")
+    report["artifacts_sha256"]["untracked.bin"] = "not-a-sha256"
+    (tmp_path / "GRID_READINESS.json").write_text(json.dumps(report))
+    assert "invalid artifact SHA256: untracked.bin" in audit_grid(tmp_path)["errors"]
+
+
+def test_archive_manifest_rejects_unhashed_extra_even_with_valid_hashes(tmp_path):
+    """An archive with valid listed hashes still fails if an extra file exists."""
+    import hashlib
+    import json
+
+    from sprpcf.simulation.vector_grid_audit import audit_grid
+
+    (tmp_path / "listed.bin").write_bytes(b"listed")
+    (tmp_path / "extra.bin").write_bytes(b"extra")
+    (tmp_path / "GRID_READINESS.json").write_text(json.dumps({
+        "artifacts_sha256": {"listed.bin": hashlib.sha256(b"listed").hexdigest()}
+    }))
+    assert "artifact inventory differs from manifest" in audit_grid(tmp_path)["errors"]
