@@ -40,3 +40,23 @@ def test_ambiguous_peak_rejected():
     bad["loss_db_cm"][49]=bad["loss_db_cm"][50]
     with pytest.raises(ValueError):
         run([spectrum(5),spectrum(2),bad])
+
+def test_nonuniform_sampling_recovers_subgrid_peak():
+    # Exact downward parabola, vertex deliberately between samples.
+    xs0=[600,610,620,630,640,648,651,655,660,670,680,690,700]
+    def row(xs):
+        ys=[20-0.002*(x-649.3)**2 for x in xs]
+        return spectrum(1,wavelength_nm=xs,loss_db_cm=ys)
+    rows=[row(xs0),row(sorted(set(xs0+[645,649,653,665]))),
+          row(sorted(set(xs0+[645,649,653,665,647,650,652,657])))]
+    result=run(rows)
+    assert result["diagnostic_pass"]
+    assert abs(result["spectra"][-1]["peak_nm"]-649.3)<1e-8
+    assert result["spectra"][-1]["sample_peak_nm"] != result["spectra"][-1]["peak_nm"]
+    assert result["physics_qualified"] is False
+
+def test_peak_vertex_rejects_unresolved_flat_curvature():
+    bad=spectrum(1)
+    bad["loss_db_cm"][49:52]=[10,10,10]
+    with pytest.raises(ValueError):
+        run([spectrum(5),spectrum(2),bad])
