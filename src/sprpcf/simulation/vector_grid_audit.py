@@ -5,6 +5,7 @@ Passing means archive consistency ONLY, never numerical physics qualification.
 import csv
 import hashlib
 import json
+import re
 from pathlib import Path
 
 FALSE_GATES = (
@@ -34,16 +35,32 @@ def audit_grid(root):
         hashes = {}
         errors.append("missing hashes")
     for name, digest in hashes.items():
-        if not isinstance(name, str) or Path(name).name != name or name == "GRID_READINESS.json":
+        if (not isinstance(name, str) or not name or name in (".", "..")
+                or Path(name).name != name or name == "GRID_READINESS.json"):
             errors.append("unsafe artifact path")
             continue
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            errors.append("invalid artifact SHA256: " + name)
+            continue
+        artifact = root / name
+        if artifact.is_symlink() or not artifact.is_file():
+            errors.append("nonregular artifact: " + name)
+            continue
         try:
-            if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
+            if hashlib.sha256(artifact.read_bytes()).hexdigest() != digest:
                 errors.append("checksum mismatch: " + name)
         except OSError:
             errors.append("missing artifact: " + name)
     required = {"topology.json", "experiment_protocol.json", "raw_eigenmode_grid.csv",
                 "vector_mode_overlap_diagnostics.json", "pcf_frozen_exploratory_grid_mesh.msh"}
+    # An unhashed extra native file is not covered by the immutable evidence manifest.
+    # Ignore only the readiness report itself, which cannot self-hash.
+    try:
+        present = {p.name for p in root.iterdir() if p.name != "GRID_READINESS.json"}
+        if present != set(hashes):
+            errors.append("artifact inventory differs from manifest")
+    except OSError as exc:
+        errors.append("unreadable artifact inventory: " + str(exc))
     if not required.issubset(hashes):
         errors.append("unhashed required artifact")
     try:
