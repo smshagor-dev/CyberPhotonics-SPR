@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -34,6 +35,18 @@ def audit_native_grid(root: Path) -> dict:
                 raise ValueError(f"native digest mismatch: {path.name}")
         protocol = json.loads(protocol_path.read_text(encoding="utf-8"))
         edges = json.loads(edges_path.read_text(encoding="utf-8"))
+        for name in ("analyte_ris", "wavelengths_um"):
+            values = protocol[name]
+            if not isinstance(values, list) or len(values) < 2:
+                raise ValueError(f"invalid spectral grid: {name}")
+            if any(type(x) not in (int, float) or not math.isfinite(x) for x in values):
+                raise ValueError(f"non-finite/non-numeric spectral grid: {name}")
+            if any(a >= b for a, b in zip(values, values[1:])):
+                raise ValueError(f"non-increasing spectral grid: {name}")
+        if any(x <= 0 for x in protocol["wavelengths_um"]):
+            raise ValueError("nonpositive wavelength in native protocol")
+        if any(x <= 0 for x in protocol["analyte_ris"]):
+            raise ValueError("nonpositive analyte refractive index")
         if not isinstance(edges, list):
             raise ValueError("native overlap diagnostic is not a list")
         result = audit_mode_plaquettes(
@@ -57,6 +70,10 @@ def audit_native_grid(root: Path) -> dict:
         "noncommuting_plaquettes": result.get("noncommuting_plaquettes", []),
         "ambiguous_plaquettes": result.get("ambiguous_plaquettes", []),
         "edges_seen": result.get("edges_seen", 0),
+        "native_input_sha256": {
+            name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+            for name in ("GRID_READINESS.json", "experiment_protocol.json", "vector_mode_overlap_diagnostics.json")
+        } if not errors else {},
     }
 
 
