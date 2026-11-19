@@ -32,8 +32,12 @@ def verify_measured_au_grid(root: Path) -> dict:
             errors.append("not a Johnson-Christy Au solver campaign")
         if protocol.get("Au_source_manifest") != source:
             errors.append("Au source manifest differs from installed reference data")
-        if report.get("Au_material_measured_data_provenance_verified") is not True:
-            errors.append("Au material provenance was not recorded")
+        if report.get("Au_reference_dataset_selected") is not True:
+            errors.append("Johnson-Christy reference selection was not recorded")
+        if report.get("Au_material_measured_data_provenance_verified") is not False:
+            errors.append("unverified Au transcription must not claim verified provenance")
+        if report.get("Au_reference_transcription_independently_verified") is not False:
+            errors.append("independent Au transcription verification must remain false")
         if report.get("scientific_submission_ready") is not False:
             errors.append("scientific readiness must remain false")
         if report.get("pml_validated") is not False or report.get("mode_tracking_physically_verified") is not False:
