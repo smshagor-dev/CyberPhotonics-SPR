@@ -18,6 +18,19 @@ def _metrics(row):
         raise ValueError("ambiguous or boundary resonance")
     if any(ys[j] >= ys[j+1] for j in range(i)) or any(ys[j] <= ys[j+1] for j in range(i,len(ys)-1)):
         raise ValueError("not strictly unimodal")
+    # Three-point nonuniform-grid parabola: report a sub-grid diagnostic
+    # only when the vertex is concave and bracketed by neighboring samples.
+    x0, x1, x2 = xs[i-1], xs[i], xs[i+1]
+    y0, y1, y2 = ys[i-1], ys[i], ys[i+1]
+    left_slope = (y1-y0)/(x1-x0)
+    right_slope = (y2-y1)/(x2-x1)
+    curvature = (right_slope-left_slope)/(x2-x0)
+    if not math.isfinite(curvature) or curvature >= 0:
+        raise ValueError("unresolved or nonconcave local peak")
+    linear = left_slope-curvature*(x0+x1)
+    vertex = -linear/(2*curvature)
+    if not math.isfinite(vertex) or not (x0 <= vertex <= x2):
+        raise ValueError("unbracketed quadratic peak vertex")
     baseline = max(ys[0],ys[-1])
     half = baseline + (ys[i]-baseline)/2
     def crossing(indices):
@@ -27,7 +40,7 @@ def _metrics(row):
         raise ValueError("unbracketed half-prominence")
     left = crossing((j,j+1) for j in range(i-1,-1,-1))
     right = crossing((j,j+1) for j in range(i,len(xs)-1))
-    return {"peak_nm":xs[i],"fwhm_nm":right-left,
+    return {"peak_nm":vertex,"sample_peak_nm":xs[i],"fwhm_nm":right-left,
             "max_step_nm":max(b-a for a,b in zip(xs,xs[1:]))}
 
 def audit_spectral_refinement(records, *, peak_tol_nm, fwhm_relative_tol):
