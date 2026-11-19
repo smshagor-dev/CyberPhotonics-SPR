@@ -28,7 +28,9 @@ def _fixture(tmp_path, monkeypatch):
     }
     (tmp_path / "experiment_protocol.json").write_text(json.dumps(protocol))
     report = {
-        "Au_material_measured_data_provenance_verified": True,
+        "Au_material_measured_data_provenance_verified": False,
+        "Au_reference_dataset_selected": True,
+        "Au_reference_transcription_independently_verified": False,
         "scientific_submission_ready": False,
         "pml_validated": False,
         "mode_tracking_physically_verified": False,
@@ -101,3 +103,23 @@ def test_unknown_gold_source_fails_before_meshing(tmp_path):
         run_vector_grid(tmp_path, wavelengths_um=(0.75, 0.8),
                         analyte_ris=(1.35, 1.36), gold_source="invented")
     assert not (tmp_path / "GRID_READINESS.json").exists()
+
+
+def test_unverified_au_transcription_cannot_self_certify(tmp_path, monkeypatch):
+    _fixture(tmp_path, monkeypatch)
+    report_path = tmp_path / "GRID_READINESS.json"
+    report = json.loads(report_path.read_text())
+    report["Au_material_measured_data_provenance_verified"] = True
+    report_path.write_text(json.dumps(report))
+    result = checker.verify_measured_au_grid(tmp_path)
+    assert not result["passed"]
+    assert "must not claim verified provenance" in str(result["errors"])
+
+
+def test_missing_au_selection_fails_closed(tmp_path, monkeypatch):
+    _fixture(tmp_path, monkeypatch)
+    report_path = tmp_path / "GRID_READINESS.json"
+    report = json.loads(report_path.read_text())
+    del report["Au_reference_dataset_selected"]
+    report_path.write_text(json.dumps(report))
+    assert not checker.verify_measured_au_grid(tmp_path)["passed"]
