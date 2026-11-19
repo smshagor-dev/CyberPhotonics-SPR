@@ -71,7 +71,7 @@ def test_native_output_directory_is_immutable_before_solver_import(tmp_path: Pat
     destination.mkdir()
     sentinel = destination / "raw_vector_eh_ri0_wl0.npz"
     sentinel.write_bytes(b"original-eigenfield-evidence")
-    with pytest.raises(FileExistsError, match="not empty"):
+    with pytest.raises(FileExistsError, match="already exists"):
         run_vector_grid(destination)
     assert sentinel.read_bytes() == b"original-eigenfield-evidence"
     assert sorted(p.name for p in destination.iterdir()) == [sentinel.name]
@@ -80,6 +80,15 @@ def test_native_output_directory_is_immutable_before_solver_import(tmp_path: Pat
 def test_native_output_rejects_file_destination(tmp_path: Path) -> None:
     destination = tmp_path / "native"
     destination.write_text("immutable", encoding="utf-8")
-    with pytest.raises(FileExistsError, match="not empty"):
+    with pytest.raises(FileExistsError, match="already exists"):
         run_vector_grid(destination)
     assert destination.read_text(encoding="utf-8") == "immutable"
+
+
+def test_native_output_rejects_existing_empty_directory(tmp_path: Path) -> None:
+    # Exclusive ownership is necessary even when no artifacts are visible yet.
+    destination = tmp_path / "native"
+    destination.mkdir()
+    with pytest.raises(FileExistsError, match="already exists"):
+        run_vector_grid(destination)
+    assert list(destination.iterdir()) == []
