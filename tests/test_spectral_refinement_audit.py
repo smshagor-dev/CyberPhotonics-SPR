@@ -60,3 +60,17 @@ def test_peak_vertex_rejects_unresolved_flat_curvature():
     bad["loss_db_cm"][49:52]=[10,10,10]
     with pytest.raises(ValueError):
         run([spectrum(5),spectrum(2),bad])
+
+def test_fwhm_uses_interpolated_peak_prominence():
+    # Offset quadratic peak: sampled-bin maximum underestimates the peak
+    # height. This test exercises the width threshold, not physical evidence.
+    center = 649.3
+    xs = list(range(600, 701))
+    ys = [20 - 0.002*(x-center)**2 for x in xs]
+    row = spectrum(1, wavelength_nm=xs, loss_db_cm=ys)
+    metrics = run([spectrum(5), spectrum(2), row])["spectra"][-1]
+    baseline = max(ys[0], ys[-1])
+    exact_width = 2*((20-baseline)/(2*0.002))**0.5
+    assert abs(metrics["interpolated_peak_loss_db_cm"]-20) < 1e-10
+    assert abs(metrics["fwhm_nm"]-exact_width) < 0.03
+    assert metrics["sample_peak_nm"] != metrics["peak_nm"]
