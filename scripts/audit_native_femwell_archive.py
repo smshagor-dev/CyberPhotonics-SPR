@@ -38,18 +38,35 @@ def audit(path: Path) -> dict:
         for name, expected in hashes.items():
             if hashlib.sha256(z.read(name)).hexdigest() != expected:
                 raise ValueError(f"SHA256 mismatch: {name}")
+        protocol = json.loads(z.read("experiment_protocol.json"))
+        ris = readiness["analyte_ris"]
+        wavelengths = readiness["wavelengths_um"]
+        if (not isinstance(ris, list) or not isinstance(wavelengths, list)
+                or not ris or not wavelengths
+                or any(type(x) not in (int, float) or not math.isfinite(x) for x in ris + wavelengths)
+                or any(x <= 0 for x in wavelengths)
+                or len(set(ris)) != len(ris) or len(set(wavelengths)) != len(wavelengths)
+                or any(b <= a for a, b in zip(wavelengths, wavelengths[1:]))
+                or protocol.get("analyte_ris") != ris
+                or protocol.get("wavelengths_um") != wavelengths
+                or protocol.get("num_modes") != readiness["num_modes_requested"]):
+            raise ValueError("invalid or inconsistent frozen RI/wavelength protocol")
         rows = list(csv.DictReader(io.StringIO(z.read("raw_eigenmode_grid.csv").decode())))
         grid = {}
         loss_diffs = []
         for row in rows:
             point = (int(row["ri_index"]), int(row["wavelength_index"]))
             mode = int(row["mode_index_native_untracked"])
+            if (point[0] not in range(len(ris)) or point[1] not in range(len(wavelengths))
+                    or float(row["analyte_ri"]) != ris[point[0]]
+                    or float(row["wavelength_um"]) != wavelengths[point[1]]):
+                raise ValueError("native eigenmode coordinates differ from frozen protocol")
             grid.setdefault(point, []).append(mode)
             lam = float(row["wavelength_um"])
             imag = float(row["n_eff_imag"])
             loss = float(row["raw_attenuation_db_per_cm_unqualified"])
             values = (lam, imag, loss, float(row["n_eff_real"]))
-            if not all(math.isfinite(v) for v in values) or lam <= 0:
+            if not all(math.isfinite(v) for v in values) or lam <= 0 or imag < 0 or loss < 0:
                 raise ValueError("invalid native eigenmode values")
             calculated = (20 / math.log(10)) * (2 * math.pi / lam) * imag * 1e4
             loss_diffs.append(abs(calculated - loss))
@@ -72,10 +89,14 @@ def audit(path: Path) -> dict:
                                  for field in ("E", "H")}
                 if set(arrays.files) != required_keys:
                     raise ValueError(f"missing E/H arrays: {name}")
+                field_sizes = set()
                 for key in required_keys:
                     a = arrays[key]
+                    field_sizes.add(a.size)
                     if a.ndim != 1 or a.size == 0 or not np.isfinite(a).all():
                         raise ValueError(f"invalid native field: {name}/{key}")
+                if len(field_sizes) != 1:
+                    raise ValueError(f"inconsistent E/H coefficient lengths: {name}")
         overlaps = json.loads(z.read("vector_mode_overlap_diagnostics.json"))
         if len(overlaps) != readiness["vector_overlap_matched_edges"]:
             raise ValueError("overlap edge count mismatch")
