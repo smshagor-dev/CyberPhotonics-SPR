@@ -12,6 +12,9 @@ on:
       - 'src/sprpcf/simulation/vector_grid_audit.py'
       - 'tests/test_vector_grid_audit.py'
       - '.github/workflows/pcf-ri-wavelength-grid.yml'
+      - 'scripts/audit_native_vector_plaquettes.py'
+      - 'tests/test_native_vector_plaquette_runner.py'
+      - 'src/sprpcf/simulation/vector_plaquette_audit.py'
   workflow_dispatch:
 
 permissions:
@@ -36,7 +39,7 @@ jobs:
       - name: Unit tests (no physics fixtures qualified)
         env:
           PYTHONPATH: src
-        run: python -m pytest -q -W error tests/test_open_vector_grid.py tests/test_measured_au_fem_grid.py tests/test_materials_reference.py tests/test_native_vector_grid_audit.py tests/test_vector_grid_audit.py
+        run: python -m pytest -q -W error tests/test_open_vector_grid.py tests/test_measured_au_fem_grid.py tests/test_materials_reference.py tests/test_native_vector_grid_audit.py tests/test_vector_grid_audit.py tests/test_vector_plaquette_audit.py tests/test_native_vector_plaquette_runner.py
       - name: Execute genuine 3-by-3 wavelength and analyte RI FEM grid with measured-reference Au
         run: |
           python scripts/probe_femwell_ri_wavelength.py \
@@ -78,6 +81,18 @@ jobs:
           assert audit['integrity_passed'], audit['errors']
           assert audit['physics_qualified'] is False
           PY
+      - name: Read-only native E/H mode plaquette consistency (not physical identity)
+        run: |
+          python scripts/audit_native_vector_plaquettes.py \
+            --native-grid /tmp/measured-au-exploratory-vector-grid \
+            --report /tmp/native-plaquette-audit.json
+      - name: Upload derived plaquette diagnostic separately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unqualified-vector-plaquette-diagnostic
+          if-no-files-found: warn
+          path: /tmp/native-plaquette-audit.json
       - name: Upload all real solver-native 2D full-vector experimental evidence
         if: always()
         uses: actions/upload-artifact@v4
