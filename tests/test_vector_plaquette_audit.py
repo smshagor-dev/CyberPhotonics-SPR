@@ -57,3 +57,24 @@ def test_duplicate_edge_rejected():
     records = edges()
     records.append(records[0])
     assert not audit(records)["graph_consistent"]
+
+
+def test_many_to_one_mode_assignment_rejected_even_when_paths_commute():
+    records = edges()
+    # All four directed neighbors map both source modes onto target mode 0.
+    # Both routes commute, but this is not a permutation or valid tracking.
+    for record in records:
+        record["current_mode_index"] = 0
+    result = audit(records)
+    assert not result["graph_consistent"]
+    assert any("nonbijective mode assignment" in error for error in result["errors"])
+
+
+def test_single_neighbor_mode_collapse_rejected():
+    records = edges()
+    for record in records:
+        if record["varying"] == "wavelength" and record["ri_index"] == 0:
+            record["current_mode_index"] = 0
+    result = audit(records)
+    assert not result["graph_consistent"]
+    assert any("nonbijective mode assignment" in error for error in result["errors"])
