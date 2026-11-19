@@ -41,6 +41,16 @@ def audit_mode_plaquettes(edges, *, n_ri: int, n_wavelength: int, n_modes: int) 
             directed[key] = (b, margin)
         except (KeyError, ValueError, TypeError, OverflowError) as exc:
             errors.append(str(exc))
+    # A commuting square is not evidence of valid mode identity if both
+    # paths collapse distinct input modes onto the same target mode.
+    by_pair = {}
+    for (src, dst, source_mode), (target_mode, _) in directed.items():
+        by_pair.setdefault((src, dst), []).append((source_mode, target_mode))
+    for (src, dst), pairs in by_pair.items():
+        targets = [target for _, target in pairs]
+        if len(pairs) != n_modes or len(set(targets)) != n_modes:
+            errors.append(f"nonbijective mode assignment: {src} -> {dst}")
+
     bad_cycles, weak_cycles = [], []
     for ri in range(n_ri - 1):
         for wi in range(n_wavelength - 1):
