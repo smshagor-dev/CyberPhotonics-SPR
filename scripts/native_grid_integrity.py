@@ -47,10 +47,10 @@ def audit(directory):
         if (not isinstance(modes, int) or isinstance(modes, bool) or modes < 1
                 or not isinstance(wavelengths, list) or not isinstance(ris, list)
                 or not wavelengths or not ris
-                or any(a >= b for values in (wavelengths, ris)
-                       for a, b in zip(values, values[1:]))
                 or not all(isinstance(x, (float, int)) and not isinstance(x, bool)
-                           and math.isfinite(x) for x in wavelengths + ris)):
+                           and math.isfinite(x) for x in wavelengths + ris)
+                or any(a >= b for values in (wavelengths, ris)
+                       for a, b in zip(values, values[1:]))):
             errors.append("invalid experiment grid")
         else:
             with rows_path.open(newline="", encoding="utf-8") as handle:
