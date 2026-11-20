@@ -44,4 +44,4 @@ def audit_overlap_graph(edges, *, n_ri, n_wavelength, n_modes):
             raise ValueError("non-bijective mode assignment")
     plaquettes = audit_mode_plaquettes(edges, n_ri=n_ri, n_wavelength=n_wavelength, n_modes=n_modes)
     return {"plaquette_consistency":plaquettes, "adjacency_pairs":len(expected),"matched_edges":len(edges),"ambiguous_edges":ambiguous,
-            "graph_integrity_verified":True,"mode_identity_physically_verified":False,"physics_qualified":False}
+            "graph_integrity_verified":plaquettes["path_independent_assignment"],"mode_identity_physically_verified":False,"physics_qualified":False}
