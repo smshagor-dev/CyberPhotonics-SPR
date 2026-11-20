@@ -22,10 +22,18 @@ def audit(directory):
             errors.append("unsafe artifact filename")
             continue
         path = root / name
-        if not path.is_file():
+        if path.is_symlink():
+            errors.append(f"symlink artifact forbidden: {name}")
+        elif not path.is_file():
             errors.append(f"missing artifact: {name}")
         elif not isinstance(digest, str) or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             errors.append(f"hash mismatch: {name}")
+
+    for required in ("experiment_protocol.json", "raw_eigenmode_grid.csv",
+                     "pcf_frozen_exploratory_grid_mesh.msh", "topology.json",
+                     "vector_mode_overlap_diagnostics.json"):
+        if required not in hashes:
+            errors.append(f"unregistered required artifact: {required}")
 
     protocol_path = root / "experiment_protocol.json"
     rows_path = root / "raw_eigenmode_grid.csv"
@@ -39,6 +47,8 @@ def audit(directory):
         if (not isinstance(modes, int) or isinstance(modes, bool) or modes < 1
                 or not isinstance(wavelengths, list) or not isinstance(ris, list)
                 or not wavelengths or not ris
+                or any(a >= b for values in (wavelengths, ris)
+                       for a, b in zip(values, values[1:]))
                 or not all(isinstance(x, (float, int)) and not isinstance(x, bool)
                            and math.isfinite(x) for x in wavelengths + ris)):
             errors.append("invalid experiment grid")
