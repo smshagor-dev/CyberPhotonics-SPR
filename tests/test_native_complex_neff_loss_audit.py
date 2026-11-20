@@ -17,6 +17,12 @@ class NativeLossAuditTests(unittest.TestCase):
             with self.subTest(values=(w, n, im)), self.assertRaises(ValueError):
                 attenuation_db_per_cm(w, n, im)
 
+    def test_finite_inputs_cannot_produce_infinite_attenuation(self):
+        for wavelength, imag in ((1e-300, 1e300), (1e-320, 1e-3)):
+            with self.subTest(wavelength=wavelength, imag=imag):
+                with self.assertRaisesRegex(ValueError, "overflow"):
+                    attenuation_db_per_cm(wavelength, 1.4, imag)
+
     def test_source_and_publication_gates(self):
         base = {"source_type": "open_source_fem_native",
                 "field_time_convention": "exp(-i omega t)",
