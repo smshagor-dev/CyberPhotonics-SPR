@@ -36,3 +36,31 @@ def test_tampering_fails_closed(change):
     if change=="identity":edges[0]["mode_identity_physically_verified"]=True
     with pytest.raises(ValueError):
         audit_overlap_graph(edges,n_ri=2,n_wavelength=2,n_modes=2)
+
+
+def test_full_three_by_three_grid_matches_native_campaign_cardinality():
+    """Exercise the real campaign's 3x3x2 graph shape; data remain synthetic."""
+    edges=[]
+    for ri in range(3):
+        for wl in range(1,3):
+            for mode in range(2):
+                edge=dict(fixture_edges()[0])
+                edge.update(ri_index=ri, previous_wl_index=wl-1,
+                            current_wl_index=wl, previous_mode_index=mode,
+                            current_mode_index=mode)
+                edges.append(edge)
+    for wl in range(3):
+        for ri in range(1,3):
+            for mode in range(2):
+                edge=dict(fixture_edges()[4])
+                edge.update(wavelength_index=wl, previous_ri_index=ri-1,
+                            current_ri_index=ri, previous_mode_index=mode,
+                            current_mode_index=mode)
+                edges.append(edge)
+    report=audit_overlap_graph(edges,n_ri=3,n_wavelength=3,n_modes=2)
+    assert report["adjacency_pairs"]==12
+    assert report["matched_edges"]==24
+    assert report["ambiguous_edges"]==0
+    assert report["physics_qualified"] is False
+    with pytest.raises(ValueError, match="missing adjacency"):
+        audit_overlap_graph(edges[:-2],n_ri=3,n_wavelength=3,n_modes=2)
