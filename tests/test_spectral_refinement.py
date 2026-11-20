@@ -41,3 +41,35 @@ class SpectralRefinementTests(unittest.TestCase):
         r=compare_spectra(C,loss(C),F,loss(F),
                           coarse_provenance={},fine_provenance=P)
         self.assertFalse(r["stable"])
+
+    def test_recomputed_but_nonhex_source_hash_rejected(self):
+        bad = dict(P, geometry_sha256="z"*64)
+        r = compare_spectra(C, loss(C), F, loss(F),
+                            coarse_provenance=bad, fine_provenance=bad)
+        self.assertEqual(r["reason"], "missing_provenance")
+
+    def test_boolean_ri_rejected(self):
+        bad = dict(P, analyte_ri=True)
+        r = compare_spectra(C, loss(C), F, loss(F),
+                            coarse_provenance=bad, fine_provenance=bad)
+        self.assertEqual(r["reason"], "missing_provenance")
+
+    def test_empty_solver_rejected(self):
+        bad = dict(P, solver=" ")
+        r = compare_spectra(C, loss(C), F, loss(F),
+                            coarse_provenance=bad, fine_provenance=bad)
+        self.assertEqual(r["reason"], "missing_provenance")
+
+    def test_coarse_point_loss_mismatch_rejected(self):
+        changed = loss(F)
+        changed[4] += 0.01
+        r = compare_spectra(C, loss(C), F, changed,
+                            coarse_provenance=P, fine_provenance=P)
+        self.assertEqual(r["reason"], "coarse_point_loss_mismatch")
+
+    def test_duplicate_wavelength_rejected(self):
+        x = F[:]
+        x[1] = x[0]
+        r = compare_spectra(C, loss(C), x, loss(F),
+                            coarse_provenance=P, fine_provenance=P)
+        self.assertFalse(r["stable"])
