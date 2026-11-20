@@ -104,3 +104,19 @@ def test_unsorted_wavelength_grid_rejected(tmp_path):
     data["wavelengths_um"] = [0.8, 0.75]
     path.write_text(json.dumps(data))
     assert not audit(root)["integrity_passed"]
+
+
+def test_malformed_protocol_coordinate_types_fail_closed(tmp_path):
+    """Invalid mixed-type coordinates must return an audit failure, not raise."""
+    for invalid in ("0.75", None, {}, True, float("nan")):
+        root = tmp_path / f"grid_{type(invalid).__name__}_{str(invalid).replace(' ', '_')}"
+        make_fixture(root)
+        path = root / "experiment_protocol.json"
+        protocol = json.loads(path.read_text())
+        protocol["wavelengths_um"][0] = invalid
+        path.write_text(json.dumps(protocol))
+        result = audit(root)
+        assert result["integrity_passed"] is False
+        assert result["physics_qualified"] is False
+        assert result["publication_ready"] is False
+        assert "invalid experiment grid" in result["errors"]
