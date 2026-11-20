@@ -59,3 +59,24 @@ def test_real_plaquette_is_eligible_for_combinatorial_consistency_only():
     assert r["path_independent_assignment"] is True
     assert r["mode_identity_physically_verified"] is False
     assert r["physics_qualified"] is False
+
+
+def test_boolean_coordinate_rejected_even_when_equal_to_valid_index():
+    e = edges()
+    e[2]["ri_index"] = True  # True compares equal to integer 1 in Python.
+    with pytest.raises(ValueError, match="coordinates must be integers"):
+        audit_mode_plaquettes(e, n_ri=2, n_wavelength=2, n_modes=2)
+
+
+def test_float_coordinate_rejected_even_when_equal_to_valid_index():
+    e = edges()
+    e[0]["previous_wl_index"] = 0.0
+    with pytest.raises(ValueError, match="coordinates must be integers"):
+        audit_mode_plaquettes(e, n_ri=2, n_wavelength=2, n_modes=2)
+
+
+def test_boolean_ri_axis_coordinate_rejected():
+    e = edges()
+    e[4]["previous_ri_index"] = False
+    with pytest.raises(ValueError, match="coordinates must be integers"):
+        audit_mode_plaquettes(e, n_ri=2, n_wavelength=2, n_modes=2)
