@@ -15,7 +15,12 @@ def audit_mode_plaquettes(edges, *, n_ri, n_wavelength, n_modes):
             key = (axis, e.get("wavelength_index"), e.get("previous_ri_index"), e.get("current_ri_index"))
         else:
             raise ValueError("unknown edge axis")
-        # Reject booleans: Python treats True == 1 and False == 0 in tuple keys.\n        # Otherwise malformed coordinates can masquerade as valid grid edges.\n        fields = ("ri_index", "previous_wl_index", "current_wl_index") if axis == "wavelength" else ("wavelength_index", "previous_ri_index", "current_ri_index")\n        if any(type(e.get(field)) is not int for field in fields):\n            raise ValueError("edge coordinates must be integers, not booleans or coerced values")\n        src, dst = e.get("previous_mode_index"), e.get("current_mode_index")
+        # Reject booleans: Python treats True == 1 and False == 0 in tuple keys.
+        # Otherwise malformed coordinates can masquerade as valid grid edges.
+        fields = ("ri_index", "previous_wl_index", "current_wl_index") if axis == "wavelength" else ("wavelength_index", "previous_ri_index", "current_ri_index")
+        if any(type(e.get(field)) is not int for field in fields):
+            raise ValueError("edge coordinates must be integers, not booleans or coerced values")
+        src, dst = e.get("previous_mode_index"), e.get("current_mode_index")
         if type(src) is not int or type(dst) is not int or not 0 <= src < n_modes or not 0 <= dst < n_modes:
             raise ValueError("invalid mode index")
         mapping = maps.setdefault(key, {})
