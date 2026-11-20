@@ -14,6 +14,10 @@ from pathlib import Path
 import zipfile
 
 import numpy as np
+try:
+    from scripts.overlap_graph_audit import audit_overlap_graph
+except ModuleNotFoundError:
+    from overlap_graph_audit import audit_overlap_graph
 
 
 def audit(path: Path) -> dict:
@@ -100,6 +104,11 @@ def audit(path: Path) -> dict:
         overlaps = json.loads(z.read("vector_mode_overlap_diagnostics.json"))
         if len(overlaps) != readiness["vector_overlap_matched_edges"]:
             raise ValueError("overlap edge count mismatch")
+        graph = audit_overlap_graph(overlaps, n_ri=len(readiness["analyte_ris"]),
+                                    n_wavelength=len(readiness["wavelengths_um"]),
+                                    n_modes=int(readiness["num_modes_requested"]))
+        if graph["ambiguous_edges"] != readiness.get("ambiguous_overlap_edges", 0):
+            raise ValueError("overlap ambiguity accounting mismatch")
         if not all(math.isfinite(float(o["vector_eh_poynting_overlap_abs"]))
                    and 0 <= float(o["vector_eh_poynting_overlap_abs"]) <= 1 + 1e-9
                    for o in overlaps):
@@ -117,7 +126,7 @@ def audit(path: Path) -> dict:
         return {"archive_sha256": archive_sha256, "manifest_sha256_verified": True,
                 "zip_members": len(names), "solver_calls": len(grid),
                 "raw_eigenmode_rows": len(rows), "native_eh_archives": len(vector_files),
-                "overlap_edges": len(overlaps),
+                "overlap_edges": len(overlaps), "overlap_graph_integrity_verified": graph["graph_integrity_verified"],
                 "max_loss_formula_error_db_per_cm": max(loss_diffs),
                 "native_integrity_verified": True, "physics_qualified": False,
                 "publication_ready": False, "comsol_verified": False}
