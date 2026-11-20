@@ -41,4 +41,5 @@ def test_duplicate_rejected():
 def test_no_plaquettes_one_dimensional():
     e=[dict(varying="wavelength",ri_index=0,previous_wl_index=0,current_wl_index=1,previous_mode_index=i,current_mode_index=i) for i in range(2)]
     r=audit_mode_plaquettes(e,n_ri=1,n_wavelength=2,n_modes=2)
-    assert r["plaquettes_checked"]==0 and not r["physics_qualified"]
+    assert r["plaquettes_checked"]==0 and not r["physics_qualified"]\n    assert r["nondegenerate_grid"] is False\n    assert r["path_independent_assignment"] is False
+\n\ndef test_single_point_grid_cannot_verify_path_independence():\n    r = audit_mode_plaquettes([], n_ri=1, n_wavelength=1, n_modes=2)\n    assert r["plaquettes_checked"] == 0\n    assert r["path_independent_assignment"] is False\n    assert r["nondegenerate_grid"] is False\n\n\ndef test_real_plaquette_is_eligible_for_combinatorial_consistency_only():\n    r = audit_mode_plaquettes(edges(), n_ri=2, n_wavelength=2, n_modes=2)\n    assert r["nondegenerate_grid"] is True\n    assert r["path_independent_assignment"] is True\n    assert r["mode_identity_physically_verified"] is False\n    assert r["physics_qualified"] is False\n
