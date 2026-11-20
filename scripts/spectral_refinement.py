@@ -64,6 +64,16 @@ def compare_spectra(coarse_wavelength_nm, coarse_loss_db_cm,
                (peak_tolerance_nm, width_relative_tolerance)):
         out["reason"] = "invalid_tolerance"
         return out
+    # Materialize once: generators are otherwise exhausted by inspect_spectrum,
+    # causing a false nested-grid failure or TypeError at len(...).
+    try:
+        coarse_wavelength_nm = list(coarse_wavelength_nm)
+        coarse_loss_db_cm = list(coarse_loss_db_cm)
+        fine_wavelength_nm = list(fine_wavelength_nm)
+        fine_loss_db_cm = list(fine_loss_db_cm)
+    except (TypeError, ValueError, OverflowError):
+        out["reason"] = "invalid_samples"
+        return out
     c = inspect_spectrum(coarse_wavelength_nm, coarse_loss_db_cm)
     f = inspect_spectrum(fine_wavelength_nm, fine_loss_db_cm)
     if not c["identified"] or not f["identified"]:
