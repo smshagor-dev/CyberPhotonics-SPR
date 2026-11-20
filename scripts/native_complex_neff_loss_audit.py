@@ -17,7 +17,10 @@ def attenuation_db_per_cm(wavelength_um, neff_real, neff_imag):
             raise ValueError(f"{name} must be a finite real number, not bool")
     if wavelength_um <= 0 or neff_imag < 0:
         raise ValueError("positive wavelength and nonnegative passive loss required")
-    return (20.0 / math.log(10.0)) * (2.0 * math.pi / wavelength_um) * neff_imag * 10000.0
+    loss = (20.0 / math.log(10.0)) * (2.0 * math.pi / wavelength_um) * neff_imag * 10000.0
+    if not math.isfinite(loss):
+        raise ValueError("attenuation overflow: unrepresentable finite dB/cm required")
+    return loss
 
 
 def audit(payload):
