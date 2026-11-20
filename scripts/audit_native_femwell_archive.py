@@ -14,7 +14,10 @@ from pathlib import Path
 import zipfile
 
 import numpy as np
-from overlap_graph_audit import audit_overlap_graph
+try:
+    from scripts.overlap_graph_audit import audit_overlap_graph
+except ModuleNotFoundError:
+    from overlap_graph_audit import audit_overlap_graph
 
 
 def audit(path: Path) -> dict:
@@ -104,7 +107,7 @@ def audit(path: Path) -> dict:
         graph = audit_overlap_graph(overlaps, n_ri=len(readiness["analyte_ris"]),
                                     n_wavelength=len(readiness["wavelengths_um"]),
                                     n_modes=int(readiness["num_modes_requested"]))
-        if graph["ambiguous_edges"] != readiness["ambiguous_overlap_edges"]:
+        if graph["ambiguous_edges"] != readiness.get("ambiguous_overlap_edges", 0):
             raise ValueError("overlap ambiguity accounting mismatch")
         if not all(math.isfinite(float(o["vector_eh_poynting_overlap_abs"]))
                    and 0 <= float(o["vector_eh_poynting_overlap_abs"]) <= 1 + 1e-9
