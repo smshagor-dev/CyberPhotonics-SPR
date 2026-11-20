@@ -42,4 +42,5 @@ def audit_mode_plaquettes(edges, *, n_ri, n_wavelength, n_modes):
     return {"plaquettes_checked":(n_ri-1)*(n_wavelength-1),
             "holonomy_defects":defects,
             "path_independent_assignment":not defects and (n_ri-1)*(n_wavelength-1)>0,
-            "nondegenerate_grid":n_ri>1 and n_wavelength>1,\n            "mode_identity_physically_verified":False,"physics_qualified":False}
+            "nondegenerate_grid":n_ri>1 and n_wavelength>1,
+            "mode_identity_physically_verified":False,"physics_qualified":False}
