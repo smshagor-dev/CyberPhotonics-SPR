@@ -1,5 +1,6 @@
 """Fail-closed overlap assignment graph audit. Integrity is NOT physical mode identity."""
 import math
+from mode_plaquette_audit import audit_mode_plaquettes
 
 def audit_overlap_graph(edges, *, n_ri, n_wavelength, n_modes):
     if min(n_ri, n_wavelength, n_modes) < 1:
@@ -41,5 +42,6 @@ def audit_overlap_graph(edges, *, n_ri, n_wavelength, n_modes):
     for pairs in grouped.values():
         if len(pairs)!=n_modes or {a for a,b in pairs}!=set(range(n_modes)) or {b for a,b in pairs}!=set(range(n_modes)):
             raise ValueError("non-bijective mode assignment")
-    return {"adjacency_pairs":len(expected),"matched_edges":len(edges),"ambiguous_edges":ambiguous,
-            "graph_integrity_verified":True,"mode_identity_physically_verified":False,"physics_qualified":False}
+    plaquettes = audit_mode_plaquettes(edges, n_ri=n_ri, n_wavelength=n_wavelength, n_modes=n_modes)
+    return {"plaquette_consistency":plaquettes, "adjacency_pairs":len(expected),"matched_edges":len(edges),"ambiguous_edges":ambiguous,
+            "graph_integrity_verified":plaquettes["path_independent_assignment"],"mode_identity_physically_verified":False,"physics_qualified":False}
