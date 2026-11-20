@@ -4,8 +4,16 @@ import math
 def inspect_spectrum(wavelength_nm, loss_db_cm):
     out = dict(identified=False, resonance_verified=False, fwhm_verified=False,
                width_convention="half_prominence", reason=None, peak_nm=None, width_nm=None)
+    try:
+        wavelength_nm, loss_db_cm = list(wavelength_nm), list(loss_db_cm)
+    except (TypeError, ValueError):
+        out["reason"] = "invalid_sample_container"
+        return out
     if len(wavelength_nm) != len(loss_db_cm) or len(wavelength_nm) < 5:
         out["reason"] = "requires_at_least_five_paired_samples"
+        return out
+    if any(isinstance(v, bool) for v in wavelength_nm + loss_db_cm):
+        out["reason"] = "boolean_sample_rejected"
         return out
     try:
         x, y = [float(v) for v in wavelength_nm], [float(v) for v in loss_db_cm]
