@@ -1,4 +1,4 @@
-"""Conservative spectrum diagnostic; never a physics qualification gate."""
+"""Conservative sampled-spectrum diagnostic; never physics qualification."""
 import math
 
 def inspect_spectrum(wavelength_nm, loss_db_cm):
@@ -12,15 +12,23 @@ def inspect_spectrum(wavelength_nm, loss_db_cm):
     except (ValueError, TypeError, OverflowError):
         out["reason"] = "non_numeric_input"
         return out
-    if not all(math.isfinite(v) for v in x+y) or not all(a < b for a,b in zip(x,x[1:])):
-        out["reason"] = "nonfinite_or_nonmonotonic_samples"
+    if not all(math.isfinite(v) for v in x+y) or not all(a < b for a,b in zip(x,x[1:])) or any(v <= 0 for v in x):
+        out["reason"] = "nonfinite_nonpositive_or_nonmonotonic_wavelength"
         return out
     if any(v < 0 for v in y):
         out["reason"] = "negative_attenuation"
         return out
-    p = max(range(len(y)), key=y.__getitem__)
-    if p < 2 or p > len(y)-3 or y.count(y[p]) != 1:
-        out["reason"] = "peak_not_unique_or_insufficient_flanks"
+    # Multiple local maxima, plateaus, or nonmonotone flanks invalidate a unique peak.
+    maxima = [i for i in range(1,len(y)-1) if y[i] > y[i-1] and y[i] > y[i+1]]
+    if len(maxima) != 1 or any(y[i] == y[i+1] for i in range(len(y)-1)):
+        out["reason"] = "ambiguous_local_maxima_or_plateau"
+        return out
+    p = maxima[0]
+    if p < 2 or p > len(y)-3:
+        out["reason"] = "insufficient_peak_flanks"
+        return out
+    if any(y[i] > y[i+1] for i in range(p)) or any(y[i] < y[i+1] for i in range(p,len(y)-1)):
+        out["reason"] = "nonunimodal_flanks"
         return out
     baseline = max(min(y[:p]), min(y[p+1:]))
     prominence = y[p] - baseline
