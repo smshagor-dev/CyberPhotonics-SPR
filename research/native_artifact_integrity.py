@@ -4,6 +4,7 @@ import json
 import os
 import stat
 from pathlib import Path
+from research.secure_native_paths import open_native_file
 
 def audit(registry, artifact_root):
     root = Path(artifact_root).resolve(strict=True)
@@ -36,7 +37,7 @@ def audit(registry, artifact_root):
             raise ValueError("escaping/duplicate artifact path")
         seen_paths.add(resolved)
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(path, flags)
+        fd = open_native_file(root, rel)
         try:
             metadata = os.fstat(fd)
             if not stat.S_ISREG(metadata.st_mode):
