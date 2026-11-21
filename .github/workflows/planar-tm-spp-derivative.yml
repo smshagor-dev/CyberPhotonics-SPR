@@ -1,0 +1,24 @@
+name: Planar measured-Au derivative control (not PCF)
+on:
+  pull_request:
+    paths:
+      - 'research/planar_tm_spp_derivative_control.py'
+      - 'tests/test_planar_tm_spp_derivative_control.py'
+      - '.github/workflows/planar-tm-spp-derivative.yml'
+  workflow_dispatch:
+jobs:
+  numerical-control:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q -W error tests/test_planar_tm_spp_derivative_control.py
+      - run: python -m research.planar_tm_spp_derivative_control --out artifacts/planar-derivative.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planar-measured-au-derivative-not-pcf-evidence
+          path: artifacts/planar-derivative.json
+          if-no-files-found: error
