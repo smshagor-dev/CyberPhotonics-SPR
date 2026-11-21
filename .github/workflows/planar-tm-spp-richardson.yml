@@ -1,0 +1,35 @@
+name: Measured Au planar derivative Richardson control (not PCF)
+on:
+  pull_request:
+    paths:
+      - 'research/planar_tm_spp_richardson.py'
+      - 'tests/test_planar_tm_spp_richardson.py'
+      - '.github/workflows/planar-tm-spp-richardson.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  planar-richardson:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy scipy pytest
+      - name: Regression tests
+        env:
+          PYTHONPATH: src:.
+        run: python -m pytest -q -W error tests/test_planar_tm_spp_richardson.py
+      - name: Genuine measured-reference planar convergence calculation
+        env:
+          PYTHONPATH: src:.
+        run: python -m research.planar_tm_spp_richardson --out artifacts/planar-richardson.json
+      - name: Upload native report even on verification failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measured-au-planar-richardson-not-pcf
+          path: artifacts/planar-richardson.json
+          if-no-files-found: warn
