@@ -1,7 +1,7 @@
 """Software-only adversarial controls; not numerical-physics validation."""
 import numpy as np
 import pytest
-from native_coefficient_continuity import match
+from research.native_coefficient_continuity import match
 
 
 def test_swapped_native_labels():
