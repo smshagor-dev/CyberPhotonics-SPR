@@ -40,6 +40,36 @@ def match(left, right):
     }
 
 
+
+def plaquette_holonomy(edges):
+    """Detect path-dependent two-mode label transport around 2x2 grid cells.
+
+    A nonidentity loop is a tracking ambiguity, not proof of a physical
+    degeneracy. Edges are directed in increasing RI/wavelength order.
+    """
+    mapping = {(tuple(edge["from"]), tuple(edge["to"])): tuple(edge["permutation"]) for edge in edges}
+    if len(mapping) != len(edges):
+        raise ValueError("Duplicate directed grid edges")
+    def transport(start, end):
+        key = (start, end)
+        if key not in mapping:
+            raise ValueError("Missing grid edge")
+        p = mapping[key]
+        if sorted(p) != [0, 1]:
+            raise ValueError("Invalid two-mode permutation")
+        return p
+    def compose(first, second):
+        return tuple(second[first[i]] for i in range(2))
+    cells = []
+    for i in range(2):
+        for j in range(2):
+            a, b, c, d = (i, j), (i, j + 1), (i + 1, j), (i + 1, j + 1)
+            via_wavelength = compose(transport(a, b), transport(b, d))
+            via_ri = compose(transport(a, c), transport(c, d))
+            cells.append({"origin": [i, j], "via_wavelength": list(via_wavelength),
+                          "via_ri": list(via_ri), "path_consistent": via_wavelength == via_ri})
+    return cells
+
 def audit(path):
     import hashlib
     path = Path(path)
@@ -65,6 +95,9 @@ def audit(path):
         for j in range(3):
             for i in range(2):
                 result["edges"].append({"axis": "analyte_ri", "from": [i, j], "to": [i + 1, j], **match(grid[i, j], grid[i + 1, j])})
+    result["plaquettes"] = plaquette_holonomy(result["edges"])
+    result["path_inconsistent_plaquettes"] = sum(not cell["path_consistent"] for cell in result["plaquettes"])
+    result["global_label_tracking_verified"] = False
     result["min_matched_similarity"] = min(edge["min_matched_similarity"] for edge in result["edges"])
     result["nonidentity_permutations"] = sum(edge["permutation"] != [0, 1] for edge in result["edges"])
     return result
