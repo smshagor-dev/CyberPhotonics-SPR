@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import zipfile
+import warnings
 
 import numpy as np
 import pytest
@@ -26,7 +27,11 @@ def fixture(path, fields=None, duplicate=False):
         archive.writestr("GRID_READINESS.json", json.dumps({"artifacts_sha256": hashes}))
         archive.writestr("raw_vector_eh_ri0_wl0.npz", raw)
         if duplicate:
-            archive.writestr("raw_vector_eh_ri0_wl0.npz", raw)
+            # Deliberately construct a malformed archive; only the expected
+            # writer warning is suppressed under pytest -W error.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=r"Duplicate name: .*", category=UserWarning, module=r"zipfile")
+                archive.writestr("raw_vector_eh_ri0_wl0.npz", raw)
 
 
 def test_valid_fixture(tmp_path):
