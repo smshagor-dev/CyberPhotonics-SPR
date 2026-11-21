@@ -30,7 +30,7 @@ def fixture(path, fields=None, duplicate=False):
             # Deliberately construct a malformed archive; only the expected
             # writer warning is suppressed under pytest -W error.
             with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message=r"Duplicate name: .*", category=UserWarning, module=r"zipfile")
+                warnings.filterwarnings("ignore", message=r"Duplicate name: .*", category=UserWarning)
                 archive.writestr("raw_vector_eh_ri0_wl0.npz", raw)
 
 
