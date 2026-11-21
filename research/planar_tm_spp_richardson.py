@@ -19,6 +19,29 @@ STEPS = (1e-3, 5e-4, 2.5e-4)
 
 def audit_point(wavelength_um: float, analyte_ri: float) -> dict:
     records = [planar_derivative_control(wavelength_um, analyte_ri, h) for h in STEPS]
+    # A finite relative-error scalar alone does not establish a valid derivative.
+    # Reject nonfinite/zero analytic roots and inconsistent analytic references
+    # before Richardson extrapolation, rather than emitting a misleading report.
+    for record in records:
+        for key in (
+            "finite_difference_dbeta_dn_real_um_inv_riu_inv",
+            "finite_difference_dbeta_dn_imag_um_inv_riu_inv",
+            "analytic_dbeta_dn_real_um_inv_riu_inv",
+            "analytic_dbeta_dn_imag_um_inv_riu_inv",
+        ):
+            value = float(record[key])
+            if not math.isfinite(value):
+                raise RuntimeError("nonfinite derivative component")
+    analytic_values = [
+        complex(r["analytic_dbeta_dn_real_um_inv_riu_inv"],
+                r["analytic_dbeta_dn_imag_um_inv_riu_inv"])
+        for r in records
+    ]
+    if abs(analytic_values[0]) == 0:
+        raise RuntimeError("zero analytic derivative reference")
+    if any(abs(v - analytic_values[0]) > 1e-12 * abs(analytic_values[0])
+           for v in analytic_values[1:]):
+        raise RuntimeError("analytic derivative reference varies with step")
     errors = [float(r["relative_error"]) for r in records]
     if not all(math.isfinite(e) and e > 0 for e in errors):
         raise RuntimeError("nonfinite or zero convergence error")
