@@ -13,6 +13,7 @@ import math
 from pathlib import Path
 
 from research.planar_tm_spp_reference import planar_tm_control
+from sprpcf.simulation.materials_reference import au_reference_manifest
 
 
 def planar_derivative_control(wavelength_um: float, analyte_ri: float, step: float = 1e-4) -> dict:
@@ -55,6 +56,10 @@ def run(out: Path) -> dict:
     points = [planar_derivative_control(w, n) for n in (1.35, 1.36, 1.37)
               for w in (0.75, 0.80, 0.85)]
     report = {
+        "source": au_reference_manifest(),
+        "method": "analytic_derivative_vs_central_difference_of_root_checked_planar_beta",
+        "temporal_convention": "exp(-i omega t)",
+        "qualified_pcf_physics": False,
         "evidence_class": "planar_analytic_derivative_crosscheck_not_PCF",
         "points": points,
         "pcf_sensor_sensitivity": False,
