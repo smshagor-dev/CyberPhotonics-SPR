@@ -1,0 +1,98 @@
+name: Measured-reference Au full-vector PCF exploratory grid
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/measured-au-vector-grid.yml'
+      - 'src/sprpcf/simulation/open_vector_grid.py'
+      - 'src/sprpcf/simulation/materials_reference.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measured-au-vector-grid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install native meshing dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libglu1-mesa libgl1
+      - name: Install real FEM numerical dependencies
+        run: python -m pip install "femwell>=0.1,<0.2" "shapely>=2" "meshio>=5.3" "pytest>=7.4"
+      - name: Run material and solver input regressions
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q tests/test_open_vector_grid.py
+      - name: Execute independent full-vector FEM eigenmode solves with sourced Au
+        run: |
+          python scripts/probe_femwell_ri_wavelength.py \
+            --out /tmp/measured-au-pcf-grid \
+            --wavelengths-um 0.75,0.8,0.85 \
+            --analyte-ris 1.35,1.36,1.37 \
+            --num-modes 2 \
+            --gold-mesh-resolution-um 0.025 \
+            --gold-source johnson_christy_1972 --strict
+      - name: Verify native bytes, spectral records and nonpublication status
+        run: |
+          python - <<'PY'
+          import csv, hashlib, json, math, pathlib, zipfile
+          p = pathlib.Path('/tmp/measured-au-pcf-grid')
+          r = json.loads((p/'GRID_READINESS.json').read_text())
+          protocol = json.loads((p/'experiment_protocol.json').read_text())
+          assert r['completed'] is True and r['failures'] == []
+          assert r['solver_calls_completed'] == 9
+          assert r['raw_eigenmode_rows'] == 18
+          assert r['vector_overlap_matched_edges'] == 24
+          assert protocol['Au'] == 'Johnson_Christy_1972_measured_bulk_reference'
+          assert protocol['Au_source_manifest']
+          assert r['Au_material_measured_data_provenance_verified'] is True
+          assert r['Au_material_reference_only_not_sensor_film_measurement'] is True
+          for flag in ('sensor_geometry_peer_reviewed_and_frozen','pml_validated',
+                       'mesh_convergence_verified','mode_tracking_physically_verified',
+                       'resonance_fwhm_verified','physical_sensor_sensitivity_verified',
+                       'scientific_submission_ready'):
+              assert r[flag] is False, flag
+          expected = {'pcf_frozen_exploratory_grid_mesh.msh','topology.json',
+                      'experiment_protocol.json','raw_eigenmode_grid.csv',
+                      'vector_mode_overlap_diagnostics.json'}
+          expected |= {f'raw_vector_eh_ri{i}_wl{j}.npz' for i in range(3) for j in range(3)}
+          assert set(r['artifacts_sha256']) == expected
+          for name in expected:
+              f = p/name
+              assert f.is_file() and not f.is_symlink(), name
+              assert hashlib.sha256(f.read_bytes()).hexdigest() == r['artifacts_sha256'][name], name
+              if name.endswith('.npz'):
+                  with zipfile.ZipFile(f) as z:
+                      assert z.testzip() is None
+                      assert set(z.namelist()) == {f'mode_{k}_{v}.npy' for k in range(2) for v in ('E','H')}
+          with (p/'raw_eigenmode_grid.csv').open(newline='') as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 18
+          seen = set()
+          for row in rows:
+              i,j,k = (int(row[n]) for n in ('ri_index','wavelength_index','mode_index_native_untracked'))
+              assert 0<=i<3 and 0<=j<3 and 0<=k<2
+              seen.add((i,j,k))
+              wl,ri,nr,ni,loss = (float(row[n]) for n in
+                  ('wavelength_um','analyte_ri','n_eff_real','n_eff_imag','raw_attenuation_db_per_cm_unqualified'))
+              assert all(map(math.isfinite,(wl,ri,nr,ni,loss)))
+              assert math.isclose(wl,[.75,.8,.85][j],abs_tol=1e-12)
+              assert math.isclose(ri,[1.35,1.36,1.37][i],abs_tol=1e-12)
+              assert math.isclose(loss,20/math.log(10)*2*math.pi/(wl*1e-4)*ni,rel_tol=1e-10,abs_tol=1e-8)
+          assert len(seen) == 18
+          print('Native measured-reference Au exploratory FEM integrity audit passed; physics remains UNQUALIFIED')
+          PY
+      - name: Archive native FEM evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measured-reference-au-vector-grid-unqualified
+          if-no-files-found: warn
+          path: /tmp/measured-au-pcf-grid/
