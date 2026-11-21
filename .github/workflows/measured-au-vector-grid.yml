@@ -6,6 +6,9 @@ on:
       - '.github/workflows/measured-au-vector-grid.yml'
       - 'src/sprpcf/simulation/open_vector_grid.py'
       - 'src/sprpcf/simulation/materials_reference.py'
+      - 'src/sprpcf/simulation/pcf_femwell_probe.py'
+      - 'scripts/probe_femwell_ri_wavelength.py'
+      - 'tests/test_open_vector_grid.py'
   workflow_dispatch:
 
 permissions:
@@ -87,6 +90,7 @@ jobs:
               assert math.isclose(ri,[1.35,1.36,1.37][i],abs_tol=1e-12)
               assert math.isclose(loss,20/math.log(10)*2*math.pi/(wl*1e-4)*ni,rel_tol=1e-10,abs_tol=1e-8)
           assert len(seen) == 18
+          assert len(rows) == len(seen), 'Duplicate native eigenpair rows'
           print('Native measured-reference Au exploratory FEM integrity audit passed; physics remains UNQUALIFIED')
           PY
       - name: Archive native FEM evidence even on failure
