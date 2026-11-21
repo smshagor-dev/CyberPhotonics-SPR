@@ -36,3 +36,24 @@ def test_fail_closed_when_convergence_is_corrupted(monkeypatch):
     monkeypatch.setattr(module, "planar_derivative_control", invalid)
     with pytest.raises(RuntimeError, match="second-order"):
         module.audit_point(0.8, 1.36)
+
+
+@pytest.mark.parametrize("corruption", ["nan_fd", "zero_analytic", "varying_analytic"])
+def test_reject_corrupted_derivative_reference(monkeypatch, corruption):
+    import research.planar_tm_spp_richardson as module
+    original = module.planar_derivative_control
+
+    def corrupt(w, n, h):
+        record = dict(original(w, n, h))
+        if corruption == "nan_fd":
+            record["finite_difference_dbeta_dn_real_um_inv_riu_inv"] = float("nan")
+        elif corruption == "zero_analytic":
+            record["analytic_dbeta_dn_real_um_inv_riu_inv"] = 0.0
+            record["analytic_dbeta_dn_imag_um_inv_riu_inv"] = 0.0
+        elif h == module.STEPS[1]:
+            record["analytic_dbeta_dn_real_um_inv_riu_inv"] += 0.1
+        return record
+
+    monkeypatch.setattr(module, "planar_derivative_control", corrupt)
+    with pytest.raises(RuntimeError, match="nonfinite derivative|zero analytic|varies with step"):
+        module.audit_point(0.8, 1.36)
