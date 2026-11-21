@@ -57,5 +57,27 @@ class NativeArtifactIntegrityTests(unittest.TestCase):
         self.src["local_path"] = "escape"
         with self.assertRaises(ValueError): self.run_audit()
 
+
+    def test_duplicate_path_different_id(self):
+        second = dict(self.src, id="alias")
+        with self.assertRaises(ValueError): self.run_audit([self.src, second])
+
+    def test_symlink_to_inside_rejected(self):
+        (self.root / "alias").symlink_to(self.root / "native.bin")
+        self.src["local_path"] = "alias"
+        with self.assertRaises(ValueError): self.run_audit()
+
+    def test_intermediate_symlink_rejected(self):
+        (self.root / "sub").mkdir()
+        (self.root / "sub" / "native.bin").write_bytes(self.data)
+        (self.root / "aliasdir").symlink_to(self.root / "sub")
+        self.src["local_path"] = "aliasdir/native.bin"
+        with self.assertRaises(ValueError): self.run_audit()
+
+    def test_directory_rejected(self):
+        (self.root / "dir").mkdir()
+        self.src["local_path"] = "dir"
+        with self.assertRaises(ValueError): self.run_audit()
+
 if __name__ == "__main__":
     unittest.main()
