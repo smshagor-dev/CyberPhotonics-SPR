@@ -1,0 +1,63 @@
+name: Measured Au 8x2 exploratory full-vector FEM campaign
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pcf-measured-au-eight-by-two.yml'
+      - 'src/sprpcf/simulation/open_vector_grid.py'
+      - 'src/sprpcf/simulation/materials_reference.py'
+      - 'scripts/probe_femwell_ri_wavelength.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  measured-au-native-fem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install native Gmsh libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libglu1-mesa libgl1
+      - name: Install open-source FEM dependencies
+        run: python -m pip install "femwell>=0.1,<0.2" "shapely>=2" "meshio>=5.3" "pytest>=7.4"
+      - name: Existing numerical material and vector-grid regressions
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q tests/test_open_vector_grid.py tests/test_materials_reference.py
+      - name: Execute measured-reference Au vector eigenmode matrix
+        run: |
+          python scripts/probe_femwell_ri_wavelength.py \
+            --out /tmp/real-measured-au-grid \
+            --wavelengths-um 0.74,0.76,0.78,0.80,0.82,0.84,0.86,0.88 \
+            --analyte-ris 1.35,1.37 \
+            --gold-source johnson_christy_1972 \
+            --num-modes 2 --gold-mesh-resolution-um 0.025 --strict
+      - name: Require native solver evidence, reject publication promotion
+        run: |
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          p=Path('/tmp/real-measured-au-grid')
+          r=json.loads((p/'GRID_READINESS.json').read_text())
+          assert r['completed'] is True, r
+          assert r['solver_calls_completed']==16, r
+          assert r['raw_eigenmode_rows']==32, r
+          assert len(list(csv.DictReader((p/'raw_eigenmode_grid.csv').open())))==32
+          assert all((p/f'raw_vector_eh_ri{i}_wl{j}.npz').exists() for i in range(2) for j in range(8))
+          assert r['scientific_submission_ready'] is False
+          assert r['pml_validated'] is False
+          assert r['mode_tracking_physically_verified'] is False
+          assert r['resonance_fwhm_verified'] is False
+          assert r['physical_sensor_sensitivity_verified'] is False
+          PY
+      - name: Archive all native outputs and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measured-au-unqualified-eight-by-two-native-fem
+          if-no-files-found: warn
+          path: /tmp/real-measured-au-grid/
