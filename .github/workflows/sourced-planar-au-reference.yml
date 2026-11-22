@@ -41,9 +41,11 @@ jobs:
           assert obj['gold']['source_doi'] == 'https://doi.org/10.1103/PhysRevB.6.4370'
           assert all(row['normalized_tm_boundary_residual'] < 1e-9 for row in obj['rows'])
           assert all(not obj[k] for k in ('physics_qualified','publication_ready','comsol_verified'))
-          (out.parent/'SHA256SUMS').write_text(f'{digest}  planar_reference.json\\n')
+          (out.parent/'SHA256SUMS').write_text(f'{digest}  planar_reference.json\n')
           print('Analytical planar reference executed; NOT PCF FEM/COMSOL or sensor evidence', digest)
           PY
+      - name: Verify SHA256SUMS with standard checksum parser
+        run: cd /tmp/planar-au-reference && sha256sum --check SHA256SUMS
       - name: Preserve native source-linked analytical outputs
         if: always()
         uses: actions/upload-artifact@v4
