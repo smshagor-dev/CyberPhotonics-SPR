@@ -32,6 +32,8 @@ def audit_native_vector_grid(directory: str | Path) -> dict:
         elif hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             failures.append(f"checksum mismatch: {name}")
 
+    if "raw_eigenmode_grid.csv" not in hashes:
+        failures.append("unhashed eigenmode CSV")
     rows_path = root / "raw_eigenmode_grid.csv"
     rows = []
     if rows_path.is_file():
@@ -42,6 +44,15 @@ def audit_native_vector_grid(directory: str | Path) -> dict:
     wavelengths = report.get("wavelengths_um", [])
     ris = report.get("analyte_ris", [])
     modes = report.get("num_modes_requested", 0)
+    if (not isinstance(wavelengths, list) or not isinstance(ris, list)
+            or not isinstance(modes, int) or isinstance(modes, bool)
+            or modes < 1 or not wavelengths or not ris
+            or any(not isinstance(x, (int, float)) or not math.isfinite(x) or x <= 0
+                   for x in wavelengths + ris)
+            or len(set(wavelengths)) != len(wavelengths)
+            or len(set(ris)) != len(ris)):
+        failures.append("invalid or empty wavelength/RI/mode grid")
+        wavelengths, ris, modes = [], [], 0
     expected_count = len(wavelengths) * len(ris) * modes
     if not report.get("completed") or report.get("failures"):
         failures.append("solver reported incomplete or failed run")
@@ -64,10 +75,15 @@ def audit_native_vector_grid(directory: str | Path) -> dict:
                     "n_eff_real", "n_eff_imag", "gold_epsilon_real",
                     "gold_epsilon_imag", "raw_attenuation_db_per_cm_unqualified")):
                 raise ValueError("nonfinite eigenmode value")
+            if (float(row["n_eff_imag"]) < 0
+                    or float(row["raw_attenuation_db_per_cm_unqualified"]) < 0):
+                raise ValueError("negative attenuation or gain-mode index")
             if float(row["gold_epsilon_imag"]) <= 0:
                 raise ValueError("nonpassive Au")
         except (KeyError, ValueError, IndexError, TypeError) as exc:
             failures.append(f"invalid CSV eigenmode row: {exc}")
+    if len(seen) != expected_count:
+        failures.append("missing distinct eigenmode grid keys")
     for ri in range(len(ris)):
         for wi in range(len(wavelengths)):
             name = f"raw_vector_eh_ri{ri}_wl{wi}.npz"
