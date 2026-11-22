@@ -4,7 +4,7 @@ import math
 
 
 def screen_resonance_sampling(wavelengths_um, losses_db_cm, *, min_samples=21,
-                              min_halfmax_intervals=3):
+                              min_halfmax_intervals=3, max_gap_ratio=3.0):
     """Screen a single *physically tracked* loss branch for FWHM feasibility.
 
     Baseline-relative half-height must be bracketed on both sides. No FWHM,
@@ -13,10 +13,16 @@ def screen_resonance_sampling(wavelengths_um, losses_db_cm, *, min_samples=21,
     if (type(min_samples) is not int or min_samples < 7 or
             type(min_halfmax_intervals) is not int or min_halfmax_intervals < 2):
         raise ValueError("invalid spectral sampling thresholds")
+    if isinstance(max_gap_ratio, bool) or not isinstance(max_gap_ratio, (int, float)) or not math.isfinite(max_gap_ratio) or max_gap_ratio < 1:
+        raise ValueError("invalid wavelength gap ratio")
     failures = []
     try:
-        xs = [float(x) for x in wavelengths_um]
-        ys = [float(y) for y in losses_db_cm]
+        raw_xs = list(wavelengths_um)
+        raw_ys = list(losses_db_cm)
+        if any(isinstance(x, bool) for x in raw_xs + raw_ys):
+            raise ValueError("boolean is not a physical sample")
+        xs = [float(x) for x in raw_xs]
+        ys = [float(y) for y in raw_ys]
     except (TypeError, ValueError, OverflowError) as exc:
         return {"eligible_for_fwhm_estimation": False,
                 "failures": [f"invalid numeric spectrum: {exc}"],
@@ -29,6 +35,13 @@ def screen_resonance_sampling(wavelengths_um, losses_db_cm, *, min_samples=21,
         failures.append("nonfinite/nonphysical spectrum")
     if any(a >= b for a, b in zip(xs, xs[1:])):
         failures.append("wavelength grid not strictly increasing")
+    if len(xs) >= 3 and all(math.isfinite(x) for x in xs):
+        gaps = [b-a for a, b in zip(xs, xs[1:])]
+        if all(g > 0 for g in gaps):
+            ordered = sorted(gaps)
+            median_gap = (ordered[(len(ordered)-1)//2] + ordered[len(ordered)//2]) / 2
+            if max(gaps) > max_gap_ratio * median_gap:
+                failures.append("unresolved wavelength sampling gap")
     if failures:
         return {"eligible_for_fwhm_estimation": False, "failures": failures,
                 "physics_qualified": False, "publication_ready": False,
