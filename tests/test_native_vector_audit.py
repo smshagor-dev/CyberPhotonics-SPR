@@ -50,6 +50,36 @@ class NativeVectorAuditTests(unittest.TestCase):
             self.assertFalse(bad["native_integrity_pass"])
             self.assertTrue(any("checksum mismatch" in s for s in bad["failures"]))
 
+    def test_empty_grid_cannot_pass_vacuously(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "raw_eigenmode_grid.csv").write_text("ri_index,wavelength_index,mode_index_native_untracked\\n")
+            digest = hashlib.sha256((root / "raw_eigenmode_grid.csv").read_bytes()).hexdigest()
+            (root / "GRID_READINESS.json").write_text(json.dumps({
+                "completed": True, "failures": [], "wavelengths_um": [],
+                "analyte_ris": [], "num_modes_requested": 0,
+                "raw_eigenmode_rows": 0,
+                "artifacts_sha256": {"raw_eigenmode_grid.csv": digest},
+            }))
+            result = audit_native_vector_grid(root)
+            self.assertFalse(result["native_integrity_pass"])
+            self.assertTrue(any("invalid or empty" in x for x in result["failures"]))
+
+    def test_unhashed_csv_is_rejected(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "raw_eigenmode_grid.csv").write_text("ri_index,wavelength_index,mode_index_native_untracked\\n")
+            (root / "dummy.txt").write_text("native")
+            (root / "GRID_READINESS.json").write_text(json.dumps({
+                "completed": True, "failures": [], "wavelengths_um": [0.8],
+                "analyte_ris": [1.36], "num_modes_requested": 1,
+                "raw_eigenmode_rows": 1,
+                "artifacts_sha256": {"dummy.txt": hashlib.sha256(b"native").hexdigest()},
+            }))
+            result = audit_native_vector_grid(root)
+            self.assertFalse(result["native_integrity_pass"])
+            self.assertIn("unhashed eigenmode CSV", result["failures"])
+
     def test_missing_report_is_not_silent(self):
         with TemporaryDirectory() as tmp:
             with self.assertRaises(FileNotFoundError):
