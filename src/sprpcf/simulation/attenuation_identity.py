@@ -13,20 +13,27 @@ def loss_db_per_cm(wavelength_um: float, n_eff_imag: float) -> float:
         raise ValueError("wavelength and imaginary effective index must be finite real numbers")
     if wavelength_um <= 0 or n_eff_imag < 0:
         raise ValueError("positive wavelength and passive nonnegative Im(n_eff) required")
-    return (20.0 / math.log(10.0)) * (2.0 * math.pi * 1e4 / wavelength_um) * n_eff_imag
+    loss = (20.0 / math.log(10.0)) * (2.0 * math.pi * 1e4 / wavelength_um) * n_eff_imag
+    if not math.isfinite(loss):
+        raise ValueError("attenuation overflow")
+    return loss
 
 
 def audit_attenuation_rows(rows, *, relative_tolerance: float = 1e-6,
                            absolute_tolerance: float = 1e-8) -> dict:
     """Audit CSV-like row dictionaries, accounting for each invalid row explicitly."""
-    if not math.isfinite(relative_tolerance) or relative_tolerance < 0:
+    if isinstance(relative_tolerance, bool) or not isinstance(relative_tolerance, (int, float)) or not math.isfinite(relative_tolerance) or relative_tolerance < 0:
         raise ValueError("invalid relative tolerance")
-    if not math.isfinite(absolute_tolerance) or absolute_tolerance < 0:
+    if isinstance(absolute_tolerance, bool) or not isinstance(absolute_tolerance, (int, float)) or not math.isfinite(absolute_tolerance) or absolute_tolerance < 0:
         raise ValueError("invalid absolute tolerance")
     failures = []
     count = 0
     for count, row in enumerate(rows, 1):
         try:
+            if not isinstance(row, dict):
+                raise ValueError("eigenmode row must be a dictionary")
+            if any(isinstance(row[key], bool) for key in ("wavelength_um", "n_eff_imag", "raw_attenuation_db_per_cm_unqualified")):
+                raise ValueError("boolean numerical fields are invalid")
             expected = loss_db_per_cm(float(row["wavelength_um"]), float(row["n_eff_imag"]))
             observed = float(row["raw_attenuation_db_per_cm_unqualified"])
             if not math.isfinite(observed) or observed < 0:
