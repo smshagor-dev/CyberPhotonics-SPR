@@ -46,7 +46,10 @@ def screen_resonance_sampling(wavelengths_um, losses_db_cm, *, min_samples=21,
             failures.append("unbracketed baseline-relative half-maximum")
         elif right[0] - left[-1] < min_halfmax_intervals:
             failures.append("insufficient sampling across half-maximum width")
-        # Multiple crossings indicate an unresolved or multimodal spectral branch.\n        if len(left) != 1 or len(right) != 1:\n            failures.append("multiple half-maximum crossings; ambiguous resonance")\n        if sum(y == ys[peak] for y in ys) > 1:
+        # Multiple crossings indicate an unresolved or multimodal spectral branch.
+        if len(left) != 1 or len(right) != 1:
+            failures.append("multiple half-maximum crossings; ambiguous resonance")
+        if sum(y == ys[peak] for y in ys) > 1:
             failures.append("ambiguous peak maximum")
     return {"eligible_for_fwhm_estimation": not failures, "failures": failures,
             "samples": len(xs), "peak_wavelength_um_diagnostic": xs[peak],
