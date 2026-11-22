@@ -1,5 +1,6 @@
 """Source-backed planar Au sweep: numerical reference, never PCF qualification."""
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import json
 import tempfile
 import unittest
@@ -26,6 +27,22 @@ class SourcedPlanarSweepTests(unittest.TestCase):
                 self.assertIs(row["physics_qualified"], False)
             with self.assertRaises(FileExistsError):
                 run_sourced_sweep([0.75], [1.35], target)
+
+    def test_concurrent_writers_never_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "exclusive.json"
+            def write(_):
+                try:
+                    return ("ok", run_sourced_sweep([0.75, 0.80], [1.35], target))
+                except FileExistsError:
+                    return ("exists", None)
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                outcomes = list(pool.map(write, range(4)))
+            self.assertEqual([x[0] for x in outcomes].count("ok"), 1)
+            self.assertEqual([x[0] for x in outcomes].count("exists"), 3)
+            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(),
+                             next(x[1] for x in outcomes if x[0] == "ok"))
+            self.assertEqual(len(json.loads(target.read_text())["rows"]), 2)
 
     def test_out_of_source_range_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
