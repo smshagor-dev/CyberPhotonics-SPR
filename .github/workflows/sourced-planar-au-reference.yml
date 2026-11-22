@@ -8,6 +8,7 @@ on:
       - 'src/sprpcf/simulation/data/au_johnson_christy_1972.csv'
       - 'tests/test_sourced_planar_spp.py'
       - 'tests/test_planar_derivative_audit.py'
+      - 'tests/test_planar_au_wavelength_derivative.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,6 +29,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_sourced_planar_spp.py -v
           python -m unittest discover -s tests -p test_planar_derivative_audit.py -v
+          python -m unittest discover -s tests -p test_planar_au_wavelength_derivative.py -v
       - name: Execute native source-linked nine-point analytical reference
         env:
           PYTHONPATH: src
