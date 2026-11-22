@@ -4,6 +4,7 @@ import cmath
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 
 def planar_reference(wavelength_um: float, analyte_ri: float, au_epsilon: complex) -> dict:
@@ -62,5 +63,10 @@ def run_sourced_sweep(wavelengths_um, analyte_ris, output_path):
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         raise FileExistsError("refuse overwrite of immutable reference")
-    output.write_bytes(payload)
+    # O_EXCL avoids the TOCTOU race in exists()+write_bytes().
+    # fsync ensures bytes are flushed before the digest is returned.
+    with output.open("xb") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
     return hashlib.sha256(payload).hexdigest()
