@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from sprpcf.simulation.planar_spp_sweep import run_sourced_sweep
 
@@ -43,6 +44,26 @@ class SourcedPlanarSweepTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(),
                              next(x[1] for x in outcomes if x[0] == "ok"))
             self.assertEqual(len(json.loads(target.read_text())["rows"]), 2)
+
+    def test_atomic_publish_failure_leaves_no_partial_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "never_partial.json"
+            with patch("sprpcf.simulation.planar_spp_sweep.os.link",
+                       side_effect=OSError("injected publish failure")):
+                with self.assertRaisesRegex(OSError, "injected publish failure"):
+                    run_sourced_sweep([0.75], [1.35], target)
+            self.assertFalse(target.exists())
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_existing_native_artifact_survives_racing_publish(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "existing.json"
+            original = b"immutable prior experiment\\n"
+            target.write_bytes(original)
+            with self.assertRaises(FileExistsError):
+                run_sourced_sweep([0.75], [1.35], target)
+            self.assertEqual(target.read_bytes(), original)
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], ["existing.json"])
 
     def test_out_of_source_range_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
