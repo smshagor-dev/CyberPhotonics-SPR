@@ -1,0 +1,54 @@
+name: Independent measured-Au planar TM-SPP numerical control
+
+on:
+  pull_request:
+    paths:
+      - 'research/planar_tm_spp_reference.py'
+      - 'tests/test_planar_tm_spp_reference.py'
+      - '.github/workflows/planar-tm-spp-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  planar-interface-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install numerical dependencies
+        run: python -m pip install numpy scipy pytest
+      - name: Regression tests with warnings as errors
+        env:
+          PYTHONPATH: src:.
+        run: python -m pytest -q -W error tests/test_planar_tm_spp_reference.py
+      - name: Execute independent planar Au-analyte TM dispersion root benchmark
+        env:
+          PYTHONPATH: src:.
+        run: python -m research.planar_tm_spp_reference --out /tmp/planar-spp-reference.json
+      - name: Check native report provenance and nonpublication flags
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/tmp/planar-spp-reference.json')
+          report=json.loads(p.read_text())
+          assert len(report['points'])==9
+          assert report['source']['row_count']==49
+          assert all(x['root_relative_difference'] < 1e-8 for x in report['points'])
+          assert report['publication_ready'] is False
+          assert report['comsol_verified'] is False
+          assert report['sensor_sensitivity_verified'] is False
+          PY
+          sha256sum /tmp/planar-spp-reference.json
+      - name: Upload immutable independent analytic control
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planar-measured-au-tm-spp-control-not-pcf-evidence
+          if-no-files-found: warn
+          path: /tmp/planar-spp-reference.json
