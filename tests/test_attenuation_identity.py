@@ -29,5 +29,28 @@ class AttenuationIdentityTests(unittest.TestCase):
         self.assertFalse(audit_attenuation_rows([row])['physics_qualified'])
 
 
+    def test_overflow_and_malformed_rows_are_accounted_for(self):
+        with self.assertRaisesRegex(ValueError, "overflow"):
+            loss_db_per_cm(1e-300, 1e300)
+        good = {'wavelength_um': 0.8, 'n_eff_imag': 0.001,
+                'raw_attenuation_db_per_cm_unqualified': loss_db_per_cm(0.8, 0.001)}
+        bad = [None, [], {'wavelength_um': True, 'n_eff_imag': 0.001,
+                            'raw_attenuation_db_per_cm_unqualified': 1},
+               {'wavelength_um': 1e-300, 'n_eff_imag': 1e300,
+                'raw_attenuation_db_per_cm_unqualified': 0}]
+        result = audit_attenuation_rows([good, *bad])
+        self.assertEqual(result['rows_checked'], 5)
+        self.assertEqual([failure['row'] for failure in result['failures']], [2, 3, 4, 5])
+        self.assertFalse(result['dimensional_identity_pass'])
+        self.assertFalse(result['publication_ready'])
+
+    def test_boolean_and_nonfinite_tolerances_rejected(self):
+        for kw in ({'relative_tolerance': True}, {'absolute_tolerance': False},
+                   {'relative_tolerance': float('nan')},
+                   {'absolute_tolerance': float('inf')}):
+            with self.assertRaises(ValueError):
+                audit_attenuation_rows([], **kw)
+
+
 if __name__ == '__main__':
     unittest.main()
