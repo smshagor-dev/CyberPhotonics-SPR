@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import tempfile
 from pathlib import Path
 
 def planar_reference(wavelength_um: float, analyte_ri: float, au_epsilon: complex) -> dict:
@@ -61,12 +62,30 @@ def run_sourced_sweep(wavelengths_um, analyte_ris, output_path):
     payload = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists():
-        raise FileExistsError("refuse overwrite of immutable reference")
-    # O_EXCL avoids the TOCTOU race in exists()+write_bytes().
-    # fsync ensures bytes are flushed before the digest is returned.
-    with output.open("xb") as stream:
-        stream.write(payload)
-        stream.flush()
-        os.fsync(stream.fileno())
+    # Stage complete bytes in the destination filesystem, then atomically
+    # publish with a hard link. O_EXCL on the final name is not sufficient:
+    # readers could otherwise observe a partially written native artifact.
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=".planar-au-", suffix=".tmp",
+            dir=output.parent, delete=False,
+        ) as stream:
+            staged = Path(stream.name)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # link() is atomic and fails if another writer published first.
+        # Unlike os.replace(), it never overwrites a previous artifact.
+        os.link(staged, output)
+        # Durability of the directory entry where supported.
+        if hasattr(os, "O_DIRECTORY"):
+            fd = os.open(output.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
     return hashlib.sha256(payload).hexdigest()
