@@ -13,6 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
+from sprpcf.simulation.attenuation_identity import audit_attenuation_rows
+
 
 def audit_native_vector_grid(directory: str | Path) -> dict:
     root = Path(directory)
@@ -82,6 +84,10 @@ def audit_native_vector_grid(directory: str | Path) -> dict:
                 raise ValueError("nonpassive Au")
         except (KeyError, ValueError, IndexError, TypeError) as exc:
             failures.append(f"invalid CSV eigenmode row: {exc}")
+    attenuation = audit_attenuation_rows(rows)
+    if not attenuation["dimensional_identity_pass"]:
+        for failure in attenuation["failures"]:
+            failures.append(f"attenuation identity row {failure['row']}: {failure['reason']}")
     if len(seen) != expected_count:
         failures.append("missing distinct eigenmode grid keys")
     for ri in range(len(ris)):
@@ -115,6 +121,8 @@ def audit_native_vector_grid(directory: str | Path) -> dict:
         "schema_version": 1,
         "audit": "native_femwell_vector_grid_integrity_not_physics_validation",
         "native_integrity_pass": not failures,
+        "attenuation_dimensional_identity_pass": attenuation["dimensional_identity_pass"],
+        "attenuation_rows_checked": attenuation["rows_checked"],
         "physics_qualified": False,
         "publication_ready": False,
         "comsol_verified": False,
