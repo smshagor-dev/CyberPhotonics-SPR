@@ -19,11 +19,19 @@ def audit_planar_propagation(epsilon_d: float, epsilon_m: complex, wavelength_um
     light_line = k0 * math.sqrt(epsilon_d)
     above = beta.real > light_line
     ratio = beta.imag / beta.real if beta.real > 0 else math.inf
+    # The intensity 1/e propagation length contains beta_real/(4*pi*beta_imag)
+    # phase cycles. This is a diagnostic, not a universal bound-mode criterion.
+    intensity_length_um = math.inf if beta.imag == 0 else 1 / (2 * beta.imag)
+    intensity_efold_phase_cycles = (
+        math.inf if beta.imag == 0 else beta.real / (4 * math.pi * beta.imag)
+    )
     residual_ok = math.isfinite(d["tm_boundary_relative_residual"]) and d["tm_boundary_relative_residual"] <= 1e-8
     decays = bool(d["decays_both_halfspaces"])
     return {
         "above_dielectric_light_line": above,
         "attenuation_to_phase_ratio": ratio,
+        "intensity_attenuation_length_um": intensity_length_um,
+        "intensity_efold_phase_cycles": intensity_efold_phase_cycles,
         "overdamped": not math.isfinite(ratio) or ratio >= 1,
         "interface_residual_pass": residual_ok,
         "transverse_decay_pass": decays,
