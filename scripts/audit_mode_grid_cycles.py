@@ -65,7 +65,10 @@ def audit_grid(rows: list[dict], edges: list[dict], min_margin: float = 0.0) -> 
             i, j = strict_index(edge["previous_mode_index"]), strict_index(edge["current_mode_index"])
             margin = float(edge["bidirectional_min_overlap_margin"])
             overlap = float(edge["vector_eh_poynting_overlap_abs"])
-            if not all(map(math.isfinite, (margin, overlap))) or not 0 <= overlap <= 1 or margin < 0 or margin > 1:
+            if (isinstance(edge["bidirectional_min_overlap_margin"], bool)
+                or isinstance(edge["vector_eh_poynting_overlap_abs"], bool)
+                or not all(map(math.isfinite, (margin, overlap)))
+                or not 0 <= overlap <= 1 or not 0 <= margin <= overlap):
                 raise ValueError("invalid overlap")
             if edge.get("assignment_ambiguous_nonpositive_margin") is True or margin <= min_margin:
                 errors.append(f"ambiguous overlap at {a}->{b} mode {i}")
