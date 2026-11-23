@@ -30,7 +30,10 @@ def match_modes(reference,candidates,weights,minimum=0.8,margin=0.05):
         s=sorted(row,reverse=True)
         if s[0]<minimum or (n>1 and s[0]-s[1]<margin):
             raise ValueError("ambiguous or low-overlap modes")
-    p=max(permutations(range(n)),key=lambda p:sum(scores[i,j] for i,j in enumerate(p)))
+    ranked=sorted(((sum(scores[i,j] for i,j in enumerate(p)),p) for p in permutations(range(n))),reverse=True)
+    best,p=ranked[0]
+    if len(ranked)>1 and best-ranked[1][0]<margin:
+        raise ValueError("ambiguous global one-to-one assignment")
     if any(scores[i,j]<minimum for i,j in enumerate(p)):
         raise ValueError("no unique high-overlap assignment")
     return {"assignment":list(p),"overlaps":[float(scores[i,j]) for i,j in enumerate(p)],
