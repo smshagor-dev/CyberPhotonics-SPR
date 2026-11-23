@@ -14,9 +14,15 @@ def planar_spp_beta(epsilon_d: complex, epsilon_m: complex, wavelength_um: float
         raise ValueError("finite permittivities required")
     if ed.imag != 0 or ed.real <= 0 or em.imag < 0:
         raise ValueError("lossless positive dielectric and passive metal required")
+    if em.real >= 0:
+        raise ValueError("negative-real-permittivity metal required for this SPP reference")
+    if em.imag == 0 and em.real >= -ed.real:
+        raise ValueError("lossless metal does not support a bound TM SPP at this interface")
     if ed + em == 0:
         raise ValueError("surface plasmon pole: zero denominator")
     beta = (2 * math.pi / wavelength_um) * cmath.sqrt(ed * em / (ed + em))
+    if not all(math.isfinite(x) for x in (beta.real, beta.imag)):
+        raise ArithmeticError("nonfinite SPP propagation constant")
     if beta.real < 0:
         beta = -beta
     if beta.imag < -1e-12:

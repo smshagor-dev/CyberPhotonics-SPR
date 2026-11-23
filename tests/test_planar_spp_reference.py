@@ -23,7 +23,7 @@ class PlanarSPPTests(unittest.TestCase):
         self.assertAlmostEqual(abs(b1/b2), 2)
 
     def test_pole_rejected(self):
-        with self.assertRaisesRegex(ValueError, "pole"):
+        with self.assertRaisesRegex(ValueError, "bound TM SPP|pole"):
             planar_spp_beta(1, -1, 0.8)
 
     def test_gain_rejected(self):
@@ -34,6 +34,21 @@ class PlanarSPPTests(unittest.TestCase):
         for x in (0, -1, float("nan"), float("inf")):
             with self.subTest(x=x), self.assertRaises(ValueError):
                 planar_spp_beta(1, -10+1j, x)
+
+    def test_nonmetal_rejected(self):
+        for em in (0, 2, 2+0.1j):
+            with self.subTest(em=em), self.assertRaisesRegex(ValueError, "negative-real"):
+                planar_spp_beta(1, em, 0.8)
+
+    def test_lossless_nonbound_regime_rejected(self):
+        for em in (-0.5, -1, -2.25):
+            with self.subTest(em=em), self.assertRaisesRegex(ValueError, "bound TM SPP"):
+                planar_spp_beta(2.25, em, 0.8)
+
+    def test_lossless_bound_regime_allowed(self):
+        d = planar_spp_diagnostics(2.25, -2.2501, 0.8)
+        self.assertTrue(d["decays_both_halfspaces"])
+        self.assertLess(d["tm_boundary_relative_residual"], 1e-10)
 
 
 if __name__ == "__main__":
