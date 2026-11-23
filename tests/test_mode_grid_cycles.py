@@ -78,6 +78,24 @@ class ModeCycleAuditTests(unittest.TestCase):
         rows[0]["wavelength_index"] = "00"
         self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
 
+    def test_margin_cannot_exceed_best_overlap(self):
+        rows, edges = fixture()
+        edges[0]["vector_eh_poynting_overlap_abs"] = .2
+        edges[0]["bidirectional_min_overlap_margin"] = .4
+        result = audit_grid(rows, edges)
+        self.assertFalse(result["cycle_consistent"])
+        self.assertTrue(any("invalid overlap" in x for x in result["failures"]))
+
+    def test_boolean_overlap_rejected(self):
+        rows, edges = fixture()
+        edges[0]["vector_eh_poynting_overlap_abs"] = True
+        self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
+
+    def test_boolean_margin_rejected(self):
+        rows, edges = fixture()
+        edges[0]["bidirectional_min_overlap_margin"] = True
+        self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
+
     def test_negative_margin_rejected(self):
         rows, edges = fixture()
         edges[0]["bidirectional_min_overlap_margin"] = -0.1
