@@ -58,6 +58,31 @@ class ModeCycleAuditTests(unittest.TestCase):
         rows, edges = fixture()
         self.assertFalse(audit_grid(rows + [rows[0]], edges)["cycle_consistent"])
 
+    def test_fractional_mode_index_rejected(self):
+        rows, edges = fixture()
+        edges[0]["previous_mode_index"] = 0.5
+        self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
+
+    def test_out_of_range_overlap_rejected(self):
+        rows, edges = fixture()
+        edges[0]["vector_eh_poynting_overlap_abs"] = 1.2
+        self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
+
+    def test_boolean_grid_index_rejected(self):
+        rows, edges = fixture()
+        rows[0]["ri_index"] = True
+        self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
+
+    def test_noncanonical_grid_index_rejected(self):
+        rows, edges = fixture()
+        rows[0]["wavelength_index"] = "00"
+        self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
+
+    def test_negative_margin_rejected(self):
+        rows, edges = fixture()
+        edges[0]["bidirectional_min_overlap_margin"] = -0.1
+        self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
+
     def test_stricter_margin(self):
         rows, edges = fixture()
         self.assertFalse(audit_grid(rows, edges, min_margin=.5)["cycle_consistent"])
