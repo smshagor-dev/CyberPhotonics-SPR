@@ -83,6 +83,20 @@ class ModeCycleAuditTests(unittest.TestCase):
         edges[0]["bidirectional_min_overlap_margin"] = -0.1
         self.assertFalse(audit_grid(rows, edges)["cycle_consistent"])
 
+    def test_out_of_range_source_mode_rejected(self):
+        rows, edges = fixture()
+        edges[0]["previous_mode_index"] = 2
+        result = audit_grid(rows, edges)
+        self.assertFalse(result["cycle_consistent"])
+        self.assertTrue(any("out of range" in error for error in result["failures"]))
+
+    def test_out_of_range_target_mode_rejected(self):
+        rows, edges = fixture()
+        edges[0]["current_mode_index"] = 2
+        result = audit_grid(rows, edges)
+        self.assertFalse(result["cycle_consistent"])
+        self.assertTrue(any("out of range" in error for error in result["failures"]))
+
     def test_stricter_margin(self):
         rows, edges = fixture()
         self.assertFalse(audit_grid(rows, edges, min_margin=.5)["cycle_consistent"])
