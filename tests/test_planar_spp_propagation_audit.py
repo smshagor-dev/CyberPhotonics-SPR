@@ -19,6 +19,21 @@ class PlanarRegimeTests(unittest.TestCase):
         self.assertTrue(d["overdamped"])
         self.assertFalse(d["planar_reference_screen_pass"])
 
+    def test_intensity_decay_cycles_distinguish_propagation_regimes(self):
+        import math
+        good = audit_planar_propagation(2.25, -20+1.5j, 0.8)
+        poor = audit_planar_propagation(2.25, -0.5+0.1j, 0.8)
+        self.assertGreater(good["intensity_efold_phase_cycles"], 10)
+        self.assertLess(poor["intensity_efold_phase_cycles"], 0.02)
+        for result in (good, poor):
+            ratio = result["attenuation_to_phase_ratio"]
+            self.assertAlmostEqual(
+                result["intensity_efold_phase_cycles"] * ratio,
+                1 / (4 * math.pi), places=10
+            )
+            self.assertGreater(result["intensity_attenuation_length_um"], 0)
+            self.assertFalse(result["physics_qualified"])
+
     def test_near_pole_overdamped_root_not_promoted(self):
         d = audit_planar_propagation(2.25, -2+0.1j, 0.8)
         self.assertFalse(d["planar_reference_screen_pass"])
