@@ -70,7 +70,9 @@ def audit_grid(rows: list[dict], edges: list[dict], min_margin: float = 0.0) -> 
             if edge.get("assignment_ambiguous_nonpositive_margin") is True or margin <= min_margin:
                 errors.append(f"ambiguous overlap at {a}->{b} mode {i}")
             mapping = maps.setdefault((a, b), {})
-            if i not in modes or j not in modes:\n                raise ValueError("edge mode index out of range")\n            if i in mapping:
+            if i not in modes or j not in modes:
+                raise ValueError("edge mode index out of range")
+            if i in mapping:
                 raise ValueError("duplicate edge source")
             mapping[i] = j
         except (KeyError, TypeError, ValueError) as exc:
