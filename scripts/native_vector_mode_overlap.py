@@ -13,17 +13,25 @@ def overlap(e1,h1,e2,h2,weights):
     if not np.all(np.isfinite(w)) or np.any(w<=0) or any(not np.all(np.isfinite(x)) for x in fields):
         raise ValueError("invalid field/weight")
     def score(a,b):
-        ab=np.sum(w[:,None]*np.conj(a)*b)
-        aa=np.sum(w[:,None]*abs(a)**2)
-        bb=np.sum(w[:,None]*abs(b)**2)
-        if aa<=0 or bb<=0:
+        sa,sb=np.max(np.abs(a)),np.max(np.abs(b))
+        if sa==0 or sb==0:
             raise ValueError("zero norm")
-        return float(np.clip(abs(ab)**2/(aa*bb),0,1))
+        a,b=a/sa,b/sb
+        wn=w/np.max(w)
+        ab=np.sum(wn[:,None]*np.conj(a)*b)
+        aa=np.sum(wn[:,None]*abs(a)**2)
+        bb=np.sum(wn[:,None]*abs(b)**2)
+        if aa<=0 or bb<=0 or not np.isfinite(aa*bb) or not np.isfinite(ab):
+            raise ValueError("invalid weighted norm")
+        raw=abs(ab)**2/(aa*bb)
+        if not np.isfinite(raw) or raw>1+1e-10:
+            raise ValueError("invalid overlap")
+        return float(min(1.0,max(0.0,raw)))
     return (score(fields[0],fields[2])+score(fields[1],fields[3]))/2
 
 def match_modes(reference,candidates,weights,minimum=0.8,margin=0.05):
     n=len(reference)
-    if n<1 or n>8 or n!=len(candidates) or not (0<=minimum<=1 and 0<=margin<=1):
+    if n<1 or n>8 or n!=len(candidates) or not (np.isfinite(minimum) and np.isfinite(margin) and 0<=minimum<=1 and 0<=margin<=1):
         raise ValueError("invalid mode count or thresholds")
     scores=np.array([[overlap(*r,*c,weights) for c in candidates] for r in reference])
     for row in scores:
