@@ -25,6 +25,23 @@ class PlanarTMTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             tm_reflectance(1, 2-1j, 0)
 
+    def test_inf_media_rejected(self):
+        with self.assertRaises(ValueError):
+            tm_reflectance(1, complex(float("inf"), 0), 0)
+
+    def test_zero_epsilon_rejected_explicitly(self):
+        with self.assertRaisesRegex(ValueError, "nonzero"):
+            tm_reflectance(1, 0, 0.2)
+
+    def test_tiny_gain_rejected(self):
+        with self.assertRaisesRegex(ValueError, "gain"):
+            passive_kz(2-1e-14j, 0, 2*math.pi)
+
+    def test_evanescent_branch(self):
+        kz = passive_kz(1, 2*math.pi*2, 2*math.pi)
+        self.assertAlmostEqual(kz.real, 0)
+        self.assertGreater(kz.imag, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
