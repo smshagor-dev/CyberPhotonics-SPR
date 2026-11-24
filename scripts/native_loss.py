@@ -23,7 +23,13 @@ def confinement_loss_db_per_cm(wavelength_um, neff, *, convention="exp(+i_beta_z
         raise ValueError("finite complex neff required")
     if neff.imag < 0:
         raise ValueError("negative attenuation: verify solver convention and eigenmode")
-    loss = (20 / math.log(10)) * (2 * math.pi / (wavelength_um * 1e-6)) * neff.imag / 100
+    wavelength_m = wavelength_um * 1e-6
+    if wavelength_m == 0:
+        raise ValueError("wavelength underflow")
+    k0 = 2 * math.pi / wavelength_m
+    if not math.isfinite(k0):
+        raise ValueError("nonfinite vacuum wavenumber")
+    loss = (20 / math.log(10)) * k0 * neff.imag / 100
     if not math.isfinite(loss):
         raise ValueError("nonfinite computed loss")
     return loss
