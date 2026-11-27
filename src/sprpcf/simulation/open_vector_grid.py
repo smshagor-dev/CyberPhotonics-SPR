@@ -83,6 +83,22 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+
+def au_source_provenance(gold_source: str) -> dict[str, bool]:
+    """Dataset selection is NOT independent authentication of source transcription.
+
+    The manifest records which reference was requested, but a separately
+    reproduced comparison against the original paper is still required.
+    """
+    if gold_source not in ("fitted", "johnson_christy_1972"):
+        raise ValueError("unknown Au optical source")
+    return {
+        "Au_material_measured_data_provenance_verified": False,
+        "Au_reference_dataset_selected": gold_source == "johnson_christy_1972",
+        "Au_reference_transcription_independently_verified": False,
+    }
+
+
 def run_vector_grid(
     out: Path,
     *,
@@ -122,7 +138,7 @@ def run_vector_grid(
         "full_vector_maxwell_solver": "femwell.maxwell.waveguide.compute_modes",
         "mode_matching": "same_mesh_vector_EH_Poynting_overlap_diagnostic_only",
         "sensor_geometry_peer_reviewed_and_frozen": False,
-        "Au_material_measured_data_provenance_verified": gold_source == "johnson_christy_1972",
+        **au_source_provenance(gold_source),
         "Au_material_reference_only_not_sensor_film_measurement": True,
         "pml_validated": False,
         "mesh_convergence_verified": False,
@@ -169,6 +185,7 @@ def run_vector_grid(
             "Au": ("Johnson_Christy_1972_measured_bulk_reference" if gold_source == "johnson_christy_1972"
                    else "repository_Rakic_style_fitted_model_not_measured_constants"),
             "Au_source_manifest": au_reference_manifest() if gold_source == "johnson_christy_1972" else None,
+            "Au_reference_transcription_independently_verified": False,
             "silica": "three_term_Sellmeier",
             "temporal_convention": "exp(-i*omega*t)",
         }

@@ -26,6 +26,8 @@ def test_integrity_tamper_and_false_gates(tmp_path):
     report = {gate: False for gate in FALSE_GATES}
     report.update(evidence_class="unqualified_solver_feasibility",
                   Au_material_measured_data_provenance_verified=False,
+                  Au_reference_dataset_selected=False,
+                  Au_reference_transcription_independently_verified=False,
                   completed=True, failures=[],
                   solver_calls_completed=4, raw_eigenmode_rows=4,
                   artifacts_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -77,7 +79,9 @@ def test_reference_au_passes_integrity_without_promoting_sensor_physics(tmp_path
     report = {gate: False for gate in FALSE_GATES}
     report.update(
         evidence_class="unqualified_solver_feasibility",
-        Au_material_measured_data_provenance_verified=True,
+        Au_material_measured_data_provenance_verified=False,
+        Au_reference_dataset_selected=True,
+        Au_reference_transcription_independently_verified=False,
         Au_material_reference_only_not_sensor_film_measurement=True,
         completed=True, failures=[], solver_calls_completed=4,
         raw_eigenmode_rows=4,
@@ -92,10 +96,18 @@ def test_reference_au_passes_integrity_without_promoting_sensor_physics(tmp_path
     assert result["integrity_passed"] is True
     assert result["physics_qualified"] is False
 
-    report["Au_material_measured_data_provenance_verified"] = False
-    manifest.write_text(json.dumps(report))
-    assert "Au source/provenance flag mismatch" in audit_grid(tmp_path)["errors"]
     report["Au_material_measured_data_provenance_verified"] = True
+    manifest.write_text(json.dumps(report))
+    assert "unverified Au source must not claim verified provenance" in audit_grid(tmp_path)["errors"]
+    report["Au_material_measured_data_provenance_verified"] = False
+    report["Au_reference_transcription_independently_verified"] = True
+    manifest.write_text(json.dumps(report))
+    assert "independent Au transcription verification must remain false" in audit_grid(tmp_path)["errors"]
+    report["Au_reference_transcription_independently_verified"] = False
+    report["Au_reference_dataset_selected"] = False
+    manifest.write_text(json.dumps(report))
+    assert "Au reference-selection flag mismatch" in audit_grid(tmp_path)["errors"]
+    report["Au_reference_dataset_selected"] = True
     report["pml_validated"] = True
     manifest.write_text(json.dumps(report))
     assert not audit_grid(tmp_path)["integrity_passed"]
